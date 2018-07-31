@@ -19,9 +19,9 @@ Sub Process_Globals
 	'These global variables will be declared once when the application starts.
 	'These variables can be accessed from all modules.
 	Public runBackgroundTasks As Boolean
-	Public uiUpdateFrequency As Int
-	Public javaInline As JavaObject 		'object for Inline Java code imbedded in B4a program Starter()
-	Public javaNative As JavaObject 		'object for Native Java object to be called
+	Public broadcastFrequency As Int		' frequency (in milliseconds) of Broadcast Intent transmissions
+	Public javaInline As JavaObject 		' object for Inline Java code imbedded in B4a program Starter()
+	Public javaNative As JavaObject 		' object for Native Java object to be called
 	Public rp As RuntimePermissions
 	Public allowReport As Boolean = True	' allowed error reporting by user / TODO set up as preferences
 	Private logs As StringBuilder
@@ -31,13 +31,12 @@ Sub Process_Globals
 	' User Preferences
 	Dim prefManager As PreferenceManager	' User Preference Manager
 	Dim prefScreen As PreferenceScreen		' User Preference Screen
-	Public prefSmoothing As Boolean			' data smoothing on (True) / off
+	Public prefSmoothing As Float			' data smoothing on (<1.0) / off (=1.0)
 	Public prefSampleRate As Int			' data aquisition frequency (sample Rate) 1Hz, 4Hz, 8Hz
 	Public prefErrReporting As Boolean		' allow error/crash reporting
 	Public prefTrueNorth As Boolean			' True yields True North, False yields Magnetic North
 	Public prefBluetoothName As String		' Name of the last connected Bluetooth Device
 	Public prefBluetoothMAC As String		' Mac Address of the last connected Bluetooth Device
-	Public prefBluetoothRSSI As String		' RSSI of the last connected Bluetooth Device
 
 	' Phone services
 	Public phoneManager As Phone
@@ -48,8 +47,8 @@ Sub Process_Globals
 	' Bluetooth variables
 	Public bleEnabled As Boolean		' true if Bluetooth is turned on and enabled by user
 	Public bleConnected As Boolean		' true if we have an active connection
-	Public bleSelect = False As Boolean ' if true we display the device list in real time throught the scan process 
-	Public bleNotify = False As Boolean
+	Public bleSelect = False As Boolean ' if true we display the device list in real time throughtout the scan process 
+	Public bleNotify = False As Boolean	' enable Bluetooth to receive data thru BLE_DataAvailable() service
 	Public bleManager As BleManager2
 	Public bleStateText As String		' store the current State of the BLE device
 	Public bleDevices As Map
@@ -63,13 +62,16 @@ Sub Process_Globals
 	Public activeGPS As Boolean			' true if Location Services are enabled
 	Public gpsStarted As Boolean		' true if the Location Services are running
 	Public gpsString As String			' String with GPS status msg
-	Public locationData As Map			' will hold 'LAT', 'LON', 'SOG', 'COG'
 	Public localDeclination As Int=999	' local Declination data, updated in Location Services
 	
 	Public deviceType As Int			' Cups=1, Ultrasonic=2 NMEA=2
 	
-	Public sensorData As Map			' dictionary holding the sensorData received from the sensor via BLE
-	Public dataFields As List			' data fields in the 'sensorData' dictionary
+	Public sensorData As Map			' current datapoint received from the sensors via BLE and GPS
+	Public sensorDataPrev As Map		' last datapoint received from the sensor via BLE and GPS
+	Public dataFields As List			' data fields in the 'sensorData' & 'sensorDataPrev' dictionaries
+	Public dataFieldsSmooth As List		' data fields to be smoothed when this feature is enabled in Preference Settings
+	Public dataFieldsCircular As List	' data fields that hold a cicular value (i.e., direction ranging from 0-359.999 degree)
+	Public dataFieldsAPI As List		' data fields that will be transmitted by the API (using Broadcast Intents)
 	
 	Type tUltra(Name As String, MacAddress As String, RSSI As Double)
 	Public actual_ultra As tUltra		' tUltra data of the actual device connected to this App
@@ -83,13 +85,13 @@ Sub Process_Globals
 	Public invalidMAC As String = "??:??"
 	Public defaultSensorName As String = "Ultrasonic Anemometer"
 	
-	Public c_ble As Int = 0				' BLE data set transfer counter for debugging only
-	
-	Public mainPaused As Boolean = False	' True when Main() is paused
+	Public ctr_ble As Int				' BLE data set transfer counter for debugging only	
 	Public deviceInfo As Map
 	
 	Public offsetAngle As Int = 0		' calibration offset angle
 	Public lpfAlpha As Float = 0.2		' Alpha parameter for the Low Pass Filter
+	
+	Public calcTools As ComputationTools ' class of various calculation tools & methods
 	
 End Sub
 
@@ -100,20 +102,25 @@ Sub Service_Create
 	' All speed data is stored in 'm/s'
 	' All directional data is stored in true degrees
 	'
-	Dim i As Int
 	
 	runBackgroundTasks = True
-	uiUpdateFrequency = 1000   		' time in milliseconds
+	broadcastFrequency = 1000   		' time between transmissions in milliseconds
 	
-	gpsManager.Initialize("GPS")	' initialize the Location Services
+	gpsManager.Initialize("GPS")		' initialize the Location Services
 	activeGPS = gpsManager.GPSEnabled
-	bleManager.Initialize("BLE")	' initialize the Bluetooth device
+	bleManager.Initialize("BLE")		' initialize the Bluetooth device
 	
-	' initialize the raw Sensor data dictionary
-	dataFields.Initialize2(Array As String("Battery", "Temp", "AWA", "AWD", "AWS", "TWA", "TWD", "TWS", "Pitch", "Roll", "Compass"))
+	' initialize the Sensor data (GPS->Location and BLE->Anemometer) dictionaries and Data Fields
+	dataFields.Initialize2(Array As String("Battery", "Temp", "AWA", "AWD", "AWS", "TWA", "TWD", "TWS", _
+			"Pitch", "Roll", "Compass", "ALT", "LAT", "LON", "COG", "SOG", "MAG", "DEC", "STATUS"))
+	dataFieldsSmooth.Initialize2(Array As String("AWA", "AWD", "AWS", "Pitch", "Roll", "Compass", "COG", "SOG", "MAG"))
+	dataFieldsCircular.Initialize2(Array As String("AWA", "AWD", "AWS", "Compass", "COG", "MAG"))
+	dataFieldsAPI.Initialize2(Array As String("Battery", "Temp", "AWA", "AWD", "AWS", "TWA", "TWD", "TWS", _
+			"Pitch", "Roll", "Compass", "COG", "SOG"))
 	sensorData.Initialize
 	bleDevices.Initialize
-	
+
+	Dim i As Int
 	For i=0 To dataFields.Size-1
 		sensorData.Put(dataFields.Get(i), 0.0)
 	Next
@@ -122,20 +129,9 @@ Sub Service_Create
 	'For i=0 To dataFields.Size-1
 	'	Log("Starter->Service_Create() data field " & dataFields.Get(i) & " = " &sensorData.Get(dataFields.Get(i)))
 	'Next
-
-	
-	' initialize the location dictionary
-	locationData.Initialize
-	locationData.Put("ALT", 0.0)		' Altidute
-	locationData.Put("LAT", 0.0)		' Latitude
-	locationData.Put("LON", 0.0)		' Longitude
-	locationData.Put("COG", 0.0)		' Course Over Ground (True North)
-	locationData.Put("SOG", 0.0)		' Speed Over Ground (m/s)
-	locationData.Put("DEC", 0.0)		' magnetic Declination
-	locationData.Put("MAG", 0.0)		' on-board Compass Reading
-	locationData.Put("STATUS", 0)		' Location data accuracy in meters (0=invalid data)
 	
 	bleStateText = "BLE Disconnected"
+	ctr_ble = 0
 	
 	actual_ultra.Initialize
 	actual_ultra.Name = "unkown"
@@ -156,6 +152,7 @@ End Sub
 Sub Service_TaskRemoved
 	'This event will be raised when the user removes the app from the recent apps list.
 	bleManager.Disconnect
+	Sleep(500)
 	Service_Destroy
 	ExitApplication
 End Sub
@@ -214,33 +211,33 @@ Public Sub StopGPS
 End Sub
 
 Sub GPS_LocationChanged(myLocation As Location)
-	' store the current location data in the global dictionary 'locationData'
-	locationData.Put("LAT", myLocation.Latitude)
-	locationData.Put("LON", myLocation.Longitude)
+	' store the current location data in the global dictionary 'sensorData'
+	sensorData.Put("LAT", myLocation.Latitude)
+	sensorData.Put("LON", myLocation.Longitude)
 	If myLocation.BearingValid Then
-		locationData.Put("COG", myLocation.Speed)
+		sensorData.Put("COG", myLocation.Speed)
 	Else
-		locationData.Put("COG", 0.0)
+		sensorData.Put("COG", 0.0)
 	End If
 	If myLocation.SpeedValid Then
-		locationData.Put("SOG", myLocation.Bearing)
+		sensorData.Put("SOG", myLocation.Bearing)
 	Else
-		locationData.Put("SOG", 0.0)
+		sensorData.Put("SOG", 0.0)
 	End If
 	If myLocation.AccuracyValid Then
-		locationData.Put("STATUS", myLocation.Accuracy)
+		sensorData.Put("STATUS", myLocation.Accuracy)
 	Else
-		locationData.Put("STATUS", 0.0)
+		sensorData.Put("STATUS", 0.0)
 	End If
 	If myLocation.AltitudeValid Then
-		locationData.Put("ALT", myLocation.Altitude)
+		sensorData.Put("ALT", myLocation.Altitude)
 	Else
-		locationData.Put("ALT", 10.0)
+		sensorData.Put("ALT", 10.0)
 	End If
 	If localDeclination = 999 Then
 		localDeclination = magDeclination ' get the magnetic delication at the current location & altitude
 	End If
-	locationData.Put("DEC", localDeclination)	
+	sensorData.Put("DEC", localDeclination)	
 End Sub
 
 
@@ -249,7 +246,7 @@ Sub magDeclination() As Float
 	Dim magDec As Float = 0.0  			' default value
 	#if B4A
 		Dim millis As Long = DateTime.Now		
-		'magDec = javaInline.RunMethod("getDeclination", Array As Object(locationData.Get("LAT"), locationData.Get("LON"), locationData.Get("ALT"), millis))
+		'magDec = javaInline.RunMethod("getDeclination", Array As Object(sensorData.Get("LAT"), sensorData.Get("LON"), sensorData.Get("ALT"), millis))
 		Log("Starter->magDeclination(): mag Declination = " & magDec)
 	#end if
 	Return magDec
@@ -287,24 +284,31 @@ End Sub
 Sub ConnectBle( ultra As tUltra )
 	bleManager.StopScan
 	bleScanTimeout.Enabled = False
-	Try
-		actual_ultra = ultra
-		CallSubDelayed(Main, "Connecting_Bluetooth")				' update the UI to the current action
-		bleConnectTimeout.Initialize("bleConnectTimeout", timeout)
-		bleConnectTimeout.Enabled = True
-		Log("Starter->ConnectBLE(): starting connection process")
-		bleManager.Connect2(ultra.MacAddress, False)
-	Catch
-		Log("Starter->ConnectBLE(): Exception: " & LastException)
-		Msgbox("Unable to connect. Plese, try again later","Bluetooth connection problem")
-	End Try
+
+	actual_ultra = ultra
+	CallSubDelayed(Main, "Connecting_Bluetooth")				' update the UI to the current action
+	Log("Starter->ConnectBLE(): starting connection process for Mac: "&ultra.MacAddress)
+	bleConnectTimeout.Initialize("bleConnectTimeout", timeout)
+	bleConnectTimeout.Enabled = True
+	bleManager.Connect2(ultra.MacAddress, False)
 End Sub
 
 Sub BLE_Connected (Services As List)
 	bleConnectTimeout.Enabled = False
 	bleNotify = False
 	bleConnected = True
-	bleStateText = "BLE connected to " & actual_ultra.Name
+	Log("Starter->BLE_Connect(): known device " & (prefBluetoothMAC = actual_ultra.MacAddress))
+	If (prefBluetoothMAC = actual_ultra.MacAddress) Then
+		' for KOWN device, use the name from the User Preference setting
+		bleStateText = "BLE connected to " & prefBluetoothName
+		Log("Starter->BLE_Connect(): to known device " & prefBluetoothName)
+	Else
+		' for UNKOWN device, use actual Name and update the User Preference "bleMAC" setting
+		bleStateText = "BLE connected to " & actual_ultra.Name
+		prefBluetoothName = actual_ultra.Name
+		prefBluetoothMAC = actual_ultra.MacAddress
+		prefManager.SetString("bleMAC", actual_ultra.MacAddress)
+	End If
 	cNormal = ""
 	cRate = ""
 	For Each s As String In Services
@@ -322,10 +326,14 @@ Sub BLE_Disconnected
 	bleConnected = False
 	bleConnectTimeout.Enabled = False
 	bleScanTimeout.Enabled = False
-	ToastMessageShow( "Disconnected from " & actual_ultra.MacAddress, False )
-	Log("Starter->BLE_Disconnected: done")
+	bleNotify = False
+	'ToastMessageShow( "Disconnected from " & actual_ultra.MacAddress, False )
+	If (prefBluetoothMAC = actual_ultra.MacAddress) Then
+		bleStateText = "BLE disconnected from " & prefBluetoothName
+	Else
+		bleStateText = "BLE disconnected from " & actual_ultra.Name
+	End If
 	CallSub(Main, "Launch_Background_Services")
-	
 End Sub
 
 Sub BLE_DiscoveryFinished
@@ -424,7 +432,6 @@ Sub BLE_DataAvailable (ServiceId As String, Characteristics As Map)
 				sensorData.Put("Compass", 360-sVars(0) + offsetAngle)
 			End If
 
-			c_ble = c_ble + 1
 		End If
 		If Characteristics.ContainsKey(cRate) Then
 			Dim sr As Int

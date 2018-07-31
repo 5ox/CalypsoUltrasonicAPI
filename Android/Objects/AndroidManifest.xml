@@ -19,6 +19,7 @@
 	<uses-permission android:name="android.permission.WAKE_LOCK"/>
 	<uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
 	<uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
+	<uses-permission android:name="com.calypso.api.ACTION_DATA_AVAILABLE"/>
 	<application android:label="Calypso Ultrasonic API">
 		
 		<activity android:name="anywheresoftware.b4a.objects.preferenceactivity"/>
@@ -27,7 +28,7 @@
 			android:launchMode="singleTop"
 			android:name=".main"
 			android:label="Calypso Ultrasonic API"
-			android:screenOrientation="unspecified">
+			android:screenOrientation="portrait">
 			<intent-filter>
 			   <action android:name="android.intent.action.MAIN" />
 			   <category android:name="android.intent.category.LAUNCHER" />
@@ -47,7 +48,7 @@
 			android:launchMode="singleTop"
 			android:name=".actble"
 			android:label="Calypso Ultrasonic API"
-			android:screenOrientation="unspecified">
+			android:screenOrientation="portrait">
 		</activity>
 	</application>
 </manifest>

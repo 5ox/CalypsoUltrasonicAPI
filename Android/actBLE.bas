@@ -39,8 +39,6 @@ Sub Activity_Create(FirstTime As Boolean)
 	'Do not forget to load the layout file created with the visual designer. For example:
 	Activity.LoadLayout("actBleActivity")
 	
-	lblHeader.Text = "Scanning Bluetooth Devices....."
-	
 	lDevices.Initialize
 		
 End Sub
@@ -77,13 +75,16 @@ Sub addToListRT
 	Next
 	lDevices.SortType( "RSSI", False )
 			
-	'For Each macaddress As String in sorted lDevices.Keys
 	clv.Clear
 	For i=0 To lDevices.Size-1
 		lUltra = lDevices.Get(i)
-		clv.AddSingleLine2(lUltra.Name & " - " & lUltra.MacAddress, lUltra)
-		'clv.AddTwoLines2( lUltra.Name , lUltra.MacAddress & " rssi: " & lUltra.RSSI, lUltra )
-		Log("actBLE->addToListRT(): Scan found: " & lUltra.Name & "-" & lUltra.MacAddress & " rssi: " & lUltra.RSSI)
+		If (Starter.prefBluetoothMAC = lUltra.MacAddress) Then
+			clv.AddSingleLine2(Starter.prefBluetoothName & " - " & lUltra.MacAddress, lUltra)
+		Else
+			clv.AddSingleLine2(lUltra.Name & " - " & lUltra.MacAddress, lUltra)
+		End If
+		Log("actBLE->addToListRT(): Scan found: " & lUltra.Name & "-" & lUltra.MacAddress & _
+			"prefMAC: " & Starter.prefBluetoothMAC & " rssi: " & lUltra.RSSI)
 		clv.SingleLineLayout.Label.TextColor = Colors.White
 		clv.SingleLineLayout.Label.TextSize = 16
 	Next
@@ -96,7 +97,6 @@ End Sub
 
 
 Sub clv_ItemClick (Position As Int, ultra As tUltra)
-	lblHeader.Text = "Please click on desired device to connect"
 	Log("actBLE->clv_ItemClick(): found devices " & (Starter.bleDevices.Size))
 	If Starter.bleConnected Then
 		Log("actBLE->clv_ItemClick(): Device is already connected. Terminating")
@@ -106,7 +106,6 @@ Sub clv_ItemClick (Position As Int, ultra As tUltra)
 	Else
 		clv.Enabled = False				' stop user from selecting another device to connect to
 
-		lblHeader.Text = "Connecting to " & ultra.Name & "..."
 		If ultra.Name.StartsWith("CUPS") Then
 			Starter.deviceType = 1
 		else if ultra.Name.StartsWith("ULTRA") Then
@@ -114,9 +113,10 @@ Sub clv_ItemClick (Position As Int, ultra As tUltra)
 		else if ultra.Name.StartsWith("NMEA") Then
 			Starter.deviceType = 3
 		End If
-		Log("actBLE->clv_ItemClick(): found device to be type  " & Starter.deviceType)
+
 		CallSubDelayed2( Starter, "ConnectBle", ultra )
-		Log("actBLE->clv_ItemClick(): Terminating after Starter-ConnectBle call")
+		Log("actBLE->clv_ItemClick(): Terminating after Starter-ConnectBle() call for device type " & Starter.deviceType)
+
 		Activity.Finish
 	End If
 End Sub

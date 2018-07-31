@@ -28,13 +28,14 @@ Library5=byteconverter
 Library6=javaobject
 Library7=runtimepermissions
 Library8=preferenceactivity
-ManifestCode='This code will be applied to the manifest file during compilation.~\n~'You do not need to modify it in most cases.~\n~'See this link for for more information: https://www.b4x.com/forum/showthread.php?p=78136~\n~AddManifestText(~\n~<uses-sdk android:minSdkVersion="22" android:targetSdkVersion="27"/>~\n~<supports-screens android:largeScreens="true" ~\n~    android:normalScreens="true" ~\n~    android:smallScreens="true" ~\n~    android:anyDensity="true"/>)~\n~'SetApplicationAttribute(android:icon, "@drawable/icon")~\n~~\n~AddApplicationText(<activity android:name="anywheresoftware.b4a.objects.preferenceactivity"/>)~\n~~\n~' Permissions~\n~AddPermission(android.permission.ACCESS_NETWORK_STATE)~\n~AddPermission(android.permission.ACCESS_COARSE_LOCATION) 'no necesaria si no BluetoothAdmin~\n~AddPermission(android.permission.ACCESS_FINE_LOCATION)~\n~AddPermission(android.permission.BLUETOOTH)~\n~AddPermission(android.permission.BLUETOOTH_ADMIN)~\n~~\n~SetApplicationAttribute(android:label, "$LABEL$")~\n~'CreateResourceFromFile(Macro, Themes.DarkTheme)~\n~'End of default text.~\n~
+ManifestCode='This code will be applied to the manifest file during compilation.~\n~'You do not need to modify it in most cases.~\n~'See this link for for more information: https://www.b4x.com/forum/showthread.php?p=78136~\n~AddManifestText(~\n~<uses-sdk android:minSdkVersion="22" android:targetSdkVersion="27"/>~\n~<supports-screens android:largeScreens="true" ~\n~    android:normalScreens="true" ~\n~    android:smallScreens="true" ~\n~    android:anyDensity="true"/>)~\n~'SetApplicationAttribute(android:icon, "@drawable/icon")~\n~~\n~AddApplicationText(<activity android:name="anywheresoftware.b4a.objects.preferenceactivity"/>)~\n~~\n~~\n~' Permissions~\n~AddPermission(android.permission.ACCESS_NETWORK_STATE)~\n~AddPermission(android.permission.ACCESS_COARSE_LOCATION) 'no necesaria si no BluetoothAdmin~\n~AddPermission(android.permission.ACCESS_FINE_LOCATION)~\n~AddPermission(android.permission.BLUETOOTH)~\n~AddPermission(android.permission.BLUETOOTH_ADMIN)~\n~AddPermission(com.calypso.api.ACTION_DATA_AVAILABLE)~\n~~\n~SetApplicationAttribute(android:label, "$LABEL$")~\n~'CreateResourceFromFile(Macro, Themes.DarkTheme)~\n~'End of default text.~\n~
 Module1=Starter
 Module2=BackgroundService
 Module3=actBLE
+Module4=ComputationTools
 NumberOfFiles=9
 NumberOfLibraries=8
-NumberOfModules=3
+NumberOfModules=4
 Version=8.3
 @EndOfDesignText@
 '--------------------------------------------------------------------------------------------------
@@ -48,22 +49,22 @@ Version=8.3
 ' July 2018
 ' -------------------------------------------------------------------------------------------------
 '
-' TODO Bluetooth
 ' TODO write calibration data to file https://www.b4x.com/android/forum/threads/text-files.6690/
 ' TODO implement calibration with Excel test to confirm
-' TODO if preferences has valid MAC, connect w/o scan
 ' TODO try to get declination thru native app
+' TODO test/complete the sample rate updates on the device
 ' TDOD implement True North / Mag North capability
 ' TODO implement RichString library to get Superscript letters 
-
+' TODO implement data smoothing using lowpass filter and kalman filter
 
 #Region  Project Attributes 
 	#ApplicationLabel: Calypso Ultrasonic API
 	#VersionCode: 1
 	#VersionName: ver 1.0
 	'SupportedOrientations possible values: unspecified, landscape or portrait.
-	#SupportedOrientations: unspecified
+	#SupportedOrientations: portrait
 	#CanInstallToExternalStorage: False
+	#BridgeLogger: True
 #End Region
 '#Extends: android.support.v7.app.AppCompatActivity
 
@@ -75,6 +76,10 @@ Version=8.3
 Sub Process_Globals
 	'These global variables will be declared once when the application starts.
 	'These variables can be accessed from all modules.
+	Public uiTimer As Timer
+	Public uiUpdateFrequency As Int = 1000
+	Public yes As String = "Yes"
+	Public no As String = "No"
 End Sub
 
 Sub Globals
@@ -91,8 +96,9 @@ Sub Globals
 	Private lblTWD As Label
 	Private lblTWS As Label
 	Private lblLOCATION As Label
+	Private lblBROADCASTS As Label
 	Private accValues() As Float
-	Private magValues() As Float
+	Private magValues() As Float	
 End Sub
 
 Sub Activity_Create(FirstTime As Boolean)
@@ -112,7 +118,10 @@ Sub Activity_Create(FirstTime As Boolean)
 		Create_User_Preference_Screen
 		Starter.javaInline.InitializeContext
 	End If
-		
+	
+	btnCONNECT.Tag = "Scan"
+	btnCONNECT.Text = "Scan for BLE"
+	lblBROADCASTS.Text = " "
 End Sub
 
 Sub Activity_Resume	
@@ -136,29 +145,58 @@ Sub Activity_Resume
 	'Starter.phoneAccelerometer.StartListening("Accelerometer")
 	'Starter.phoneMagnetic.StartListening("Magnetic")
 		
-	' now start our Background Service (this function ensures that we always can get back to this program state)
+	' now start our Background Service (this function ensures that we always get restart the Service at any time)
 	Launch_Background_Services
+	
+	' start the UI update timer with execution (clicks) every 'uiUpdateFrequency' milliseconds
+	uiTimer.Initialize("uiUpdate", uiUpdateFrequency)
+	uiTimer.Enabled=True
 End Sub
 
 
 Sub Activity_Pause (UserClosed As Boolean)
-	' Stop our Background Service
-	Starter.runBackgroundTasks = False	' the background services stops when this Boolean is False
-	Starter.mainPaused = True			' indicate to Bluetooth services that we don't accept data
 	Starter.phoneAccelerometer.StopListening
 	Starter.phoneMagnetic.StopListening
-	Starter.bleScanTimeout.Enabled = False 
+	Starter.bleScanTimeout.Enabled = False
+	
+	' stop the uiTimer for the uiUpdate
+	uiTimer.Enabled = False
+	
+	Log("User Closed: "&UserClosed)
+End Sub
+
+
+Sub Activity_KeyPress (KeyCode As Int) As Boolean
+	' function to catch the back key and only exit the app when the user confirms this
+	If KeyCode = KeyCodes.KEYCODE_BACK Then
+		Dim question As String = "Do you realy want to exit this App and shutdown the datafeed from the Anemometer?"
+		Dim title As String = "Exit App?"
+	
+		If Confirm_Dialog(question, title, yes, no) Then
+			Starter.bleManager.Disconnect
+			Starter.runBackgroundTasks = False	' the background services stops when this Boolean is False
+			Starter.ctr_ble = 0					' reset the Broadcast Receiver send counter
+			Return False						' tell the OS that I take care of canceling the app
+			Activity.Finish 					'...or whatever other previous killing actions.
+		Else
+			Return True
+		End If
+	End If
+	Return False
 End Sub
 
 
 Sub Launch_Background_Services
 	If Starter.bleConnected Then
-		Starter.mainPaused = False			' indicate to the Bluetooth services if we do accept data
 		Starter.runBackgroundTasks = True	' the background services runs until this Boolean is False
 		StartService(BackgroundService)		' start Background Service for this App
 		Log("Main->Launch_Background_Services(): Background Services with Bluetooth status: " & Starter.bleManager.State)
 	End If	
-	Log("Main->Launch_Background_Services(): pref Mac: "&Starter.prefBluetoothMAC&"  RSSI: "&Starter.prefBluetoothRSSI)
+	Log("Main->Launch_Background_Services(): pref Mac: "&Starter.prefBluetoothMAC)
+
+	' start the UI update timer with execution (clicks) every 'uiUpdateFrequency' milliseconds
+	uiTimer.Initialize("uiUpdate", uiUpdateFrequency)
+	uiTimer.Enabled=True
 	update_UI
 End Sub
 
@@ -176,45 +214,65 @@ Sub update_UI
 	lblAWS.Text = NumberFormat2(Starter.sensorData.Get("AWS"), 1, 1, 1, False)
 	lblTWA.Text = NumberFormat(Starter.sensorData.Get("Pitch"), 3, 0) & "º"
 	lblTWD.Text = NumberFormat(Starter.sensorData.Get("Roll"), 3, 0) & "º"
-	lblTWS.Text = NumberFormat2(Rnd(0, 10), 1, 1, 1, False)
+	lblTWS.Text = NumberFormat(Starter.sensorData.Get("COG"), 3, 0) & "º"
 	lblBATTERY.Text = NumberFormat(Starter.sensorData.Get("Battery"), 1, 0) & "%"
 	lblTEMP.Text = NumberFormat2(Starter.sensorData.Get("Temp"), 1, 1, 1, False) & "ºC"
 	lblConnectionStatus.Text = Starter.bleStateText
+	
+	If Starter.ctr_ble > 1 Then
+		lblBROADCASTS.Text = (Starter.ctr_ble & " Broadcast transmissions")
+	End If
 	If Starter.activeGPS Then
 		Dim str As String
 		Dim tmp As String
-		tmp = Starter.gpsLocation.ConvertToMinutes(Starter.locationData.Get("LAT"))
+		tmp = Starter.gpsLocation.ConvertToMinutes(Starter.sensorData.Get("LAT"))
 		str = "Lat: " & tmp.SubString2(0, tmp.Length-2)
-		tmp = Starter.gpsLocation.ConvertToMinutes(Starter.locationData.Get("LON"))
+		tmp = Starter.gpsLocation.ConvertToMinutes(Starter.sensorData.Get("LON"))
 		str = str & "  Lon: " & tmp.SubString2(0, tmp.Length-2)
 	End If
 	If Starter.activeCompass Then
-		str = str & "  Hdg: " & NumberFormat(Starter.locationData.Get("MAG"), 3, 0) & "º"
+		str = str & "  Hdg: " & NumberFormat(Starter.sensorData.Get("MAG"), 3, 0) & "º"
 	End If
 	lblLOCATION.Text = str
 End Sub
 
 
+' uiTimer Event that get's executed every 'uiUpdateFrequency' miliseconds - see uiTimer.Initialize()
+Sub uiUpdate_Tick
+	update_UI
+End Sub
+
+
+' Layout Button click even
 Sub btnCONNECT_Click
-	If Starter.bleConnected Then
-		Starter.bleManager.Disconnect
-		Log("Main->btnConnect(): to disconnect BLE")
-		btnCONNECT.Enabled = True
-		btnCONNECT.Text = "Scan for BLE"
-	Else
-		btnCONNECT.Enabled = False
+	Log("Main->btnCONNECT_Click(): " & btnCONNECT.Tag)
+
+	If btnCONNECT.Tag = "Scan" Then
 		btnCONNECT.Text = "Scanning...."
-		btnCONNECT.Invalidate
 		CallSubDelayed(Starter, "BLE_Scan")
+	Else
+		Dim question As String = "Do you realy want to shutdown the datafeed from the Anemometer?"
+		Dim title As String = "Disconnect Bluetooth?"
+	
+		If Confirm_Dialog(question, title, yes, no) Then
+			Starter.bleManager.Disconnect
+			Starter.bleConnected = False
+			Disconnect_Bluetooth
+			btnCONNECT.Text = "Scan for BLE"
+			' Stop our Background Service
+			Starter.runBackgroundTasks = False	' stop the background services
+		End If
 	End If
+	btnCONNECT.Invalidate
 End Sub
 
 
 Sub Connecting_Bluetooth
-	btnCONNECT.Enabled = False
+	btnCONNECT.Enabled = True
 	lblConnectionStatus.Text = "Connecting to " & Starter.actual_ultra.MacAddress
 	btnCONNECT.Invalidate
 	btnCONNECT.Text = "Stop BLE"
+	btnCONNECT.Tag = "Stop"
 End Sub
 
 
@@ -223,11 +281,11 @@ Sub Disconnect_Bluetooth
 	lblConnectionStatus.Text = "Disconnected"
 	btnCONNECT.Invalidate
 	btnCONNECT.Text = "Scan & Connect BLE"
+	btnCONNECT.Tag = "Scan"
 End Sub
 
 
 Sub Bluetooth_Services_Start
-	Dim result As Int
 	'---------------------------------------------------------------------------------
 	' Check the status of the Bluetooth device and power on as necessary
 	
@@ -236,8 +294,10 @@ Sub Bluetooth_Services_Start
 		Starter.bleEnabled = True
 		
 	Else If Starter.bleManager.State = Starter.bleManager.STATE_POWERED_OFF Then 'BLE is powered off
-		result = Msgbox2( "Bluetooth is disabled. Do you want to enable it?", "Bluetooth devise status", "Yes", "", "No", Null )
-		If result = DialogResponse.POSITIVE Then
+
+		Dim question As String = "Bluetooth is disabled. Do you want to enable it?"
+		Dim title As String = "Bluetooth devise status"
+		If Confirm_Dialog(question, title, yes, no) Then
 			#if B4A
 				Starter.bleEnabled = Starter.javaInline.RunMethod("setBluetooth", Null)
 			Log("Main->Bluetooth_Services_Start(): Power on suceeded: " & Starter.bleEnabled)
@@ -266,9 +326,9 @@ End Sub
 
 
 Sub Location_Services_Start
-	Dim result As Int
-	result = Msgbox2( "Location service is disabled. Do you want to enable it?", "Advise", "Yes", "", "No", Null )
-	If result = DialogResponse.POSITIVE Then
+	Dim question As String = "Location service is disabled. Do you want to enable it?"
+	Dim title As String = "Location Services"
+	If Confirm_Dialog(question, title, yes, no) Then
 		StartActivity(Starter.gpsManager.LocationSettingsIntent)  ' will open the appropiate screen on device
 		Starter.activeGPS = Starter.gpsManager.GPSEnabled
 		Log("Main->Location_Services_Start(): activeGPS " & Starter.activeGPS)
@@ -295,11 +355,11 @@ End Sub
 ' https://stackoverflow.com/questions/8315913/how-to-get-direction-in-android-such-as-north-west
 Sub Calc_Orientation()
 	If accValues.Length = 0 Or magValues.Length = 0 Then		' TODO - this algo is not yielding correct Hdg
-		Starter.locationData.Put("MAG", 0.0)
+		Starter.sensorData.Put("MAG", 0.0)
 	Else
 		#if B4A
 			Dim R(9), I(9) As Float
-			Dim old As Float = Starter.locationData.Get("MAG")
+			Dim old As Float = Starter.sensorData.Get("MAG")
 			Dim new As Float
 			Dim success As Boolean = Starter.javaNative.RunMethod("getRotationMatrix", Array(R, I, accValues, magValues))
 			If success Then
@@ -307,7 +367,7 @@ Sub Calc_Orientation()
 				Starter.javaNative.RunMethod("getOrientation", Array(R, orientation))
 				new = (-orientation(0) * 180.0 / cPI + 360.0) Mod 360.0
 				new = new * Starter.lpfAlpha + old * (1.0 - Starter.lpfAlpha)
-				Starter.locationData.Put("MAG", new)
+				Starter.sensorData.Put("MAG", new)
 				'Log("Main->Location_Services_Start(): Phone compass direction: " & NumberFormat(new, 3, 0))
 				Starter.activeCompass = True
 			End If
@@ -326,42 +386,56 @@ End Sub
 
 
 Sub Bluetooth_Click
-	Log("Main->Bluetooth_Click(): Bluetooth ActionBar Menu Option click")
+	' force a full Bluetooth connection process (Power on, Scan, Connect)
+	Log("Main->Bluetooth_Click(): " & btnCONNECT.Tag)
 	Bluetooth_Services_Start
 End Sub
 
 
 Sub Calibration_Click
-	Msgbox2( "Compass Calibration not yet implemented", "Compass Calibration", "OK", "", "", Starter.appIcon)
+	Dim question As String = "Compass Calibration not yet implemented"
+	Dim title As String = "Compass Calibration"
+	Confirm_Dialog(question, title, "OK", "")
 End Sub
 
 
 Sub Exit_Click
-	Dim result As Int
-	result = Msgbox2( "Do you realy want to exit this App and shutdown the datafeed from the Anemometer?", "Exit App?", "Yes", "", "No", Starter.appIcon )
-	If result = DialogResponse.POSITIVE Then
-		CallSub(Starter, "Service_TaskRemoved")
-	End If
+	Dim question As String = "Do you realy want to exit this App and shutdown the datafeed from the Anemometer?"
+	Dim title As String = "Exit App?"
 	
+	If Confirm_Dialog(question, title, yes, no) Then
+		' Stop our Background Service
+		Starter.bleManager.Disconnect
+		Starter.runBackgroundTasks = False	' the background services stops when this Boolean is False
+		Starter.ctr_ble = 0					' reset the Broadcast Receiver send counter
+		Activity.Finish
+	End If
 End Sub
 
+
+Sub Confirm_Dialog(question As String, title As String, positive As String, negative As String) As Boolean
+	Dim feedback As Int
+	Log("Main->Confirm_APP_Exit(): " & question)
+	feedback = Msgbox2( question, title, positive, "", negative, Starter.appIcon )
+	'Log("feedback="&feedback&"  ="&DialogResponse.POSITIVE&"   "&(feedback = DialogResponse.POSITIVE))
+	Return (feedback = DialogResponse.POSITIVE)
+End Sub
 
 '---------------------------------------------------------------------------------
 ' User preference settings: screen / defaults / updates
 
 Sub Set_Default_User_Preferences
 	'defaults are only set on the first run.
-	Starter.prefManager.SetBoolean("Smoothing", True)
 	Starter.prefManager.SetBoolean("ErrReporting", False)
-	Starter.prefManager.SetString("SampleRate", "4")
+	Starter.prefManager.SetString("SampleRate", "4  samples/second")
 	Starter.prefManager.SetBoolean("TrueNorth", True)
+	Starter.prefManager.SetString("SmoothingFactor", "75%")
 	Starter.prefManager.SetString("bleName", Starter.defaultSensorName)
 	Starter.prefManager.SetString("bleMAC", Starter.invalidMAC)
-	Starter.prefManager.SetString("bleRSSI", "")
 	
 	Starter.prefSampleRate = 4
 	Starter.prefErrReporting = False
-	Starter.prefSmoothing = True
+	Starter.prefSmoothing = 0.20
 	Starter.prefTrueNorth = True
 End Sub
 
@@ -372,11 +446,13 @@ Sub Create_User_Preference_Screen
 	'create two categories
 	Dim cat1, cat2 As PreferenceCategory
 	cat1.Initialize("Software Parameters")
-	cat1.AddCheckBox("Smoothing", "Data Smoothing", "Smooth the instrument data (on/off)", True)
 	cat1.AddCheckBox("TrueNorth", "Direction Data", "Display direction data as True North (on) or Magnetic North (off)", False)
-	cat1.AddList("SampleRate", "Sample Rate", "The higher the frequency, the higher the power consumption", "", _
-        Array As String("1 sample/second", "4 samples/second", "8 samples/second"))
-	
+	cat1.AddList("SampleRate", "Sample Rate", "The higher the frequency, the higher the power consumption", _
+        "4 samples/second", Array As String("1 sample/second", "4 samples/second", "8 samples/second"))
+	'cat1.AddCheckBox("Smoothing", "Data Smoothing", "Smooth the instrument data (on/off)", True)
+	cat1.AddList("SmoothingFactor", "Data Smoothing", "Select the data smoothing factor (0=none, 90=max)", _
+	"75%", Array As String("No Smoothing", "25%", "50%", "75%", "Max Smoothing"))
+
 	cat2.Initialize("Other")
 	cat2.AddEditText("bleName", "Anemometer Name", "You can rename your Anemometer and save it for furture connections", Starter.defaultSensorName)
 	cat2.AddCheckBox("ErrReporting", "Error Reporting", "Allow App to send Crash reports (on/off)", False)
@@ -398,21 +474,35 @@ Sub Get_Current_Preference_Settings
 			Starter.prefSampleRate = 4
 		Case "8 samples/second"
 			Starter.prefSampleRate = 8
+		Case Else
+			Starter.prefSampleRate = 4
+	End Select
+	Select Starter.prefManager.GetString("SmoothingFactor")
+		Case "No Smoothing"
+			Starter.prefSmoothing = 1.0
+		Case "25%"
+			Starter.prefSmoothing = 0.4
+		Case "50%"
+			Starter.prefSmoothing = 0.3
+		Case "75%"
+			Starter.prefSmoothing = 0.2
+		Case "Max Smoothing"
+			Starter.prefSmoothing = 0.1
+		Case Else
+			Starter.prefSmoothing = 0.2
 	End Select
 	Starter.prefErrReporting = Starter.prefManager.GetBoolean("ErrReporting")
-	Starter.prefSmoothing = Starter.prefManager.GetBoolean("Smoothing")
 	Starter.prefTrueNorth = Starter.prefManager.GetBoolean("TrueNorth")
 	
 	If (Starter.prefManager.GetString("bleMAC") = Starter.invalidMAC) Then
 		Starter.prefBluetoothName = Starter.defaultSensorName
 		Starter.prefBluetoothMAC = Starter.invalidMAC
-		Starter.prefBluetoothRSSI = ""
 	Else
 		Starter.prefBluetoothName = Starter.prefManager.GetString("bleName")
 		Starter.prefBluetoothMAC = Starter.prefManager.GetString("bleMAC").Replace("-", "")
-		Starter.prefBluetoothRSSI = Starter.prefManager.GetString("bleRSSI").Replace("-", "")
 	End If
-	Log("Main->Get_Current_Preference_Settings(): Prefs: Mac: "&Starter.prefBluetoothMAC&" RSSI: "&Starter.prefBluetoothRSSI)
+	Log("Main->Get_Current_Preference_Settings(): Prefs: Mac: "&Starter.prefBluetoothMAC & _
+		"  Name: " & Starter.prefBluetoothName)
 End Sub
 
 

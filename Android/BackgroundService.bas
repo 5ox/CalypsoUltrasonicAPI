@@ -6,13 +6,15 @@ Version=8.3
 @EndOfDesignText@
 '--------------------------------------------------------------------------------------------------
 ' Background Services
-'	they will execute every Starter.uiUpdateFrequency milli-seconds
+'	they will execute every Starter.broadcastFrequency milli-seconds
 '	they will be terminated when Starter.runBackgroundTasks is set the False
 '	they are started by settin Starter.runBackgroundTasks to True and calling StartService(BackgroundService)
 ' 
 ' Developed by Volker Petersen (volker.petersen01@gmail.com)
 ' July 2018
 ' -------------------------------------------------------------------------------------------------
+' https://www.b4x.com/android/forum/threads/send-data-to-app-by-intent.43570/
+'
 #Region  Service Attributes 
 	#StartAtBoot: False
 	
@@ -21,23 +23,41 @@ Version=8.3
 Sub Process_Globals
 	'These global variables will be declared once when the application starts.
 	'These variables can be accessed from all modules.
+	Public API As Intent
+	Public intentObject(1) As String Array
 End Sub
 
 Sub Service_Create
-
 End Sub
 
 Sub Service_Start (StartingIntent As Intent)
-	' TODO add Broadcast Intents to send out Anemometer data to other Apps
+	' Broadcast Intents will transmit the data in 'sensorData' to other Apps
 	Do While(Starter.runBackgroundTasks)
-		If (Starter.bleConnected And Not(Starter.mainPaused) ) Then
-			CallSub(Main, "update_UI")  ' calls sub in main to update the display
+		If (Starter.bleConnected ) Then
+			Send_Broadcast_Intents
 		End If
-		Sleep(Starter.uiUpdateFrequency)
+		Sleep(Starter.broadcastFrequency)
 	Loop
 	Service.StopAutomaticForeground 'Call this when the background task completes (if there is one)
 End Sub
 
 Sub Service_Destroy
+
+End Sub
+
+
+Sub Send_Broadcast_Intents
+	Dim i As Int
+	Dim str As String
+	
+	For i=0 To Starter.dataFieldsAPI.Size-1
+		str = Round2( Starter.sensorData.Get(Starter.dataFieldsAPI.Get(i)), 4)
+		API.Initialize("com.calypso.api.ACTION_DATA_AVAILABLE", "")
+		API.PutExtra(Starter.dataFieldsAPI.Get(i), Array As String(str) )
+		Starter.phoneManager.SendBroadcastIntent(API)
+	Next	
+
+	Starter.ctr_ble = Starter.ctr_ble + 1
+	Log("BackgroundServices->Send_Broadcast_Intents: " & Starter.ctr_ble & ".) send:" & Starter.dataFieldsAPI.Size&" fields")
 
 End Sub
