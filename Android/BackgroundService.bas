@@ -16,8 +16,7 @@ Version=8.3
 ' https://www.b4x.com/android/forum/threads/send-data-to-app-by-intent.43570/
 '
 #Region  Service Attributes 
-	#StartAtBoot: False
-	
+	#StartAtBoot: False	
 #End Region
 
 Sub Process_Globals
@@ -50,14 +49,14 @@ Sub Send_Broadcast_Intents
 	Dim i As Int
 	Dim str As String
 	
+	API.Initialize("com.calypso.api.ACTION_DATA_AVAILABLE", "")
 	For i=0 To Starter.dataFieldsAPI.Size-1
-		str = Round2( Starter.sensorData.Get(Starter.dataFieldsAPI.Get(i)), 4)
-		API.Initialize("com.calypso.api.ACTION_DATA_AVAILABLE", "")
+		str = Round2( Starter.sensorDataProcessed.Get(Starter.dataFieldsAPI.Get(i)), 3)
 		API.PutExtra(Starter.dataFieldsAPI.Get(i), Array As String(str) )
-		Starter.phoneManager.SendBroadcastIntent(API)
-	Next	
+	Next
+	Starter.phoneManager.SendBroadcastIntent(API)
 
 	Starter.ctr_ble = Starter.ctr_ble + 1
-	Log("BackgroundServices->Send_Broadcast_Intents: " & Starter.ctr_ble & ".) send:" & Starter.dataFieldsAPI.Size&" fields")
+	'Log("BackgroundServices->Send_Broadcast_Intents: " & Starter.ctr_ble & ".) send:" & Starter.dataFieldsAPI.Size&" fields")
 
 End Sub

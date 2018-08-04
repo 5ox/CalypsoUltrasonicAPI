@@ -4,8 +4,8 @@ FileGroup1=Default Group
 Group=Default Group
 IconFile=
 Library1=core
-ManifestCode='This code will be applied to the manifest file during compilation.~\n~'You do not need to modify it in most cases.~\n~'See this link for for more information: https://www.b4x.com/forum/showthread.php?p=78136~\n~AddManifestText(~\n~<uses-sdk android:minSdkVersion="20" android:targetSdkVersion="27"/>~\n~<supports-screens android:largeScreens="true" ~\n~    android:normalScreens="true" ~\n~    android:smallScreens="true" ~\n~    android:anyDensity="true"/>)~\n~SetApplicationAttribute(android:icon, "@drawable/icon")~\n~SetApplicationAttribute(android:label, "$LABEL$")~\n~CreateResourceFromFile(Macro, Themes.DarkTheme)~\n~'End of default text.~\n~AddPermission(android.permission.RECEIVE_ULTRASONIC_API)~\n~AddReceiverText(Starter,~\n~<intent-filter>~\n~    <action android:name="com.calypso.api.ACTION_DATA_AVAILABLE" />~\n~</intent-filter>)~\n~
-Module1=Starter
+ManifestCode='This code will be applied to the manifest file during compilation.~\n~'You do not need to modify it in most cases.~\n~'See this link for for more information: https://www.b4x.com/forum/showthread.php?p=78136~\n~AddManifestText(~\n~<uses-sdk android:minSdkVersion="20" android:targetSdkVersion="27"/>~\n~<supports-screens android:largeScreens="true" ~\n~    android:normalScreens="true" ~\n~    android:smallScreens="true" ~\n~    android:anyDensity="true"/>)~\n~SetApplicationAttribute(android:icon, "@drawable/icon")~\n~SetApplicationAttribute(android:label, "$LABEL$")~\n~CreateResourceFromFile(Macro, Themes.DarkTheme)~\n~'End of default text.~\n~AddPermission(android.permission.RECEIVE_ULTRASONIC_API)~\n~AddReceiverText(BroadcastReceiverService,~\n~<intent-filter>~\n~    <action android:name="com.calypso.api.ACTION_DATA_AVAILABLE" />~\n~</intent-filter>)~\n~
+Module1=BroadcastReceiverService
 NumberOfFiles=1
 NumberOfLibraries=1
 NumberOfModules=1
@@ -53,14 +53,7 @@ Sub Process_Globals
 	'These global variables will be declared once when the application starts.
 	'These variables can be accessed from all modules.
 	Public uiTimer As Timer
-	Public broadcastTimer As Timer
 	Public ctr As Int
-	Public broadcastIntent As Intent
-	Public AWA As Float
-	Public AWD As Float
-	Public AWS As Float
-	Public dataFieldsAPI As List
-	Public broadcastReceiverID As String
 End Sub
 
 Sub Globals
@@ -69,12 +62,6 @@ Sub Globals
 	Public lblTitle As Label
 	Public ListView1 As ListView
 
-	' Initialize a list of all available Broadcast Intent Extras
-	dataFieldsAPI.Initialize2(Array As String("Battery", "Temp", "AWA", "AWD", "AWS", "TWA", "TWD", "TWS", _
-			"Pitch", "Roll", "Compass", "COG", "SOG"))
-
-	broadcastReceiverID = "com.calypso.api.ACTION_DATA_AVAILABLE"  ' must match the Manifest entry
-	ctr = 0
 End Sub
 
 Sub Activity_Create(FirstTime As Boolean)
@@ -82,6 +69,7 @@ Sub Activity_Create(FirstTime As Boolean)
 	Activity.LoadLayout("MainActivity")
 	Activity.Title = "Calypso Ultrasonic API"
 
+	ctr = 0
 	lblTitle.Text = "Calypso Ultrasonic API"
 	' initialize the data fields available thru the API
 End Sub
@@ -90,45 +78,29 @@ Sub Activity_Resume
 	uiTimer.Initialize("uiTimer", 1000)
 	uiTimer.Enabled = True
 	
-	broadcastTimer.Initialize("broadcastTimer", 800)
-	broadcastTimer.Enabled = True
 	Log("Initialized the timers.. ")
 	
-	broadcastIntent.Initialize(broadcastReceiverID, "")
-
+	StartService(BroadcastReceiverService)		' start Broadcast Receiver Service
+	
+	
 End Sub
 
 Sub Activity_Pause (UserClosed As Boolean)
 	uiTimer.Enabled = False
-	broadcastTimer.Enabled = False
 	If UserClosed Then
 		Activity.Finish
 	End If
+	
+	StopService(BroadcastReceiverService)
+	
+	If UserClosed Then Activity.Finish
+	
 End Sub
 
 Sub uiTimer_Tick
-	Log("Received AWA = " & AWA)
-	Log("--")
 	ctr = ctr + 1
 	lblTitle.Text = ctr & ". dataset"
-	ListView1.AddSingleLine( ctr & ". AWS record received = " & AWS)
+	ListView1.AddSingleLine( ctr & "-> AWD=" & BroadcastReceiverService.AWD & _
+		"  Temp=" & BroadcastReceiverService.Temp)
 	ListView1.SingleLineLayout.Label.TextSize = 14
-End Sub
-
-Sub broadcastTimer_Tick
-'Sub broadcastIntent_OnReceive
-	Log("Intent Action: "&broadcastIntent.Action&" looking for: "&broadcastReceiverID)
-	If broadcastIntent.Action = broadcastReceiverID Then
-		If broadcastIntent.HasExtra("AWA") Then
-			Dim value() As String
-			value = broadcastIntent.GetExtra("AWA")
-			Log("AWA value: " & value(0))
-			If (value.Length>0 And value(0).Length>0) Then
-				AWA = value(0)
-			Else
-				AWA = 0.0
-			End If
-		End If
-	End If
-	
 End Sub

@@ -45,7 +45,7 @@ End Sub
 
 
 Sub Activity_Resume
-	lblHeader.Text = "Scanning Bluetooth Devices....."
+	lblHeader.Text = "Scanning Bluetooth Devices...."
 End Sub
 
 
@@ -64,7 +64,7 @@ Sub addToListRT
 	Dim lUltra As tUltra
 	Dim i As Int
 
-	lblHeader.Text = "Please click on the device to connect to it"
+	lblHeader.Text = "Click on the device to connect..."
 	Log("actBLE->addToListRT(): found devices " & (Starter.bleDevices.Size))
 		
 	' sort the entries in devices by their RSSI key

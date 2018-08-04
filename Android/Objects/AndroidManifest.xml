@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest
 	xmlns:android="http://schemas.android.com/apk/res/android"
-	package="com.calypsoinstruments.CalysoUltrasonicAPI"
+	package="com.calypsoinstruments.CalypsoUltrasonicAPI"
 	android:versionCode="1"
 	android:versionName="ver 1.0"
 	android:installLocation="internalOnly">
@@ -14,13 +14,16 @@
 	<uses-permission android:name="android.permission.BLUETOOTH"/>
 	<uses-permission android:name="android.permission.BLUETOOTH_ADMIN"/>
 	<uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
-	<uses-permission android:name="android.permission.INTERNET"/>
 	<uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"/>
+	<uses-permission android:name="android.permission.INTERNET"/>
 	<uses-permission android:name="android.permission.WAKE_LOCK"/>
 	<uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
 	<uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
-	<uses-permission android:name="com.calypso.api.ACTION_DATA_AVAILABLE"/>
-	<application android:label="Calypso Ultrasonic API">
+	<uses-permission android:name="android.permission.RECEIVE_ULTRASONIC_API"/>
+	<application
+		android:icon="@drawable/icon"
+		android:label="Calypso Ultrasonic API"
+		android:theme="@style/DarkTheme">
 		
 		<activity android:name="anywheresoftware.b4a.objects.preferenceactivity"/>
 		<activity
@@ -47,6 +50,13 @@
 			android:windowSoftInputMode="stateHidden"
 			android:launchMode="singleTop"
 			android:name=".actble"
+			android:label="Calypso Ultrasonic API"
+			android:screenOrientation="portrait">
+		</activity>
+		<activity
+			android:windowSoftInputMode="stateHidden"
+			android:launchMode="singleTop"
+			android:name=".actcalibration"
 			android:label="Calypso Ultrasonic API"
 			android:screenOrientation="portrait">
 		</activity>

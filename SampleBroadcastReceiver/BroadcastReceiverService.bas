@@ -28,36 +28,62 @@ Version=8.3
 '
 #Region  Service Attributes 
 	#StartAtBoot: False
-	#ExcludeFromLibrary: True
+	
 #End Region
 
 Sub Process_Globals
 	'These global variables will be declared once when the application starts.
 	'These variables can be accessed from all modules.
+	Public broadcastIntent As Intent
+	Public TEMP As Float
+	Public AWD As Float
+	Public dataFieldsAPI As List
+	Public broadcastReceiverID As String
 End Sub
 
 Sub Service_Create
-	'This is the program entry point.
-	'This is a good place to load resources that are not specific to a single activity.
+	' Initialize a list of all available Broadcast Intent Extras
+	dataFieldsAPI.Initialize2(Array As String("Battery", "Temp", "AWA", "AWD", "AWS", "TWA", "TWD", "TWS", _
+			"Pitch", "Roll", "COG", "SOG"))
+
+	broadcastReceiverID = "com.calypso.api.ACTION_DATA_AVAILABLE"  ' must match the Manifest entry
+
+End Sub
+
+Sub Service_Start (StartingIntent As Intent)
+
+	'Log("Intent Action: "&StartingIntent.Action&" looking for: "&broadcastReceiverID)
+	If StartingIntent.Action = broadcastReceiverID Then
+		ParseIntentData(StartingIntent)
+	End If
+	Sleep(50)
 	
-
-End Sub
-
-Sub Service_Start (startingIntent As Intent)
-
-End Sub
-
-Sub Service_TaskRemoved
-	'This event will be raised when the user removes the app from the recent apps list.
-End Sub
-
-'Return true to allow the OS default exceptions handler to handle the uncaught exception.
-Sub Application_Error (Error As Exception, StackTrace As String) As Boolean
-	Return True
+	Service.StopAutomaticForeground 'Call this when the background task completes (if there is one)
 End Sub
 
 Sub Service_Destroy
 
 End Sub
 
+Sub ParseIntentData(apiINTENT As Intent)
+	Dim value() As String
+	If apiINTENT.HasExtra("Temp") Then
+		value = apiINTENT.GetExtra("Temp")
+		Log("Temp value: " & value(0))
+		If (value.Length>0 And value(0).Length>0) Then
+			TEMP = value(0)
+		Else
+			TEMP = 0.0
+		End If
+	End If
+	If apiINTENT.HasExtra("AWD") Then
+		value = apiINTENT.GetExtra("AWD")
+		Log("AWD value: " & value(0))
+		If (value.Length>0 And value(0).Length>0) Then
+			AWD = value(0)
+		Else
+			AWD = 0.0
+		End If
+	End If
 
+End Sub
