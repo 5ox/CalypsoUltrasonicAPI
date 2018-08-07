@@ -23,7 +23,7 @@ Sub Process_Globals
 	'These global variables will be declared once when the application starts.
 	'These variables can be accessed from all modules.
 	Public API As Intent
-	Public intentObject(1) As String Array
+	'Public intentObject(1) As String Array
 End Sub
 
 Sub Service_Create
@@ -31,12 +31,18 @@ End Sub
 
 Sub Service_Start (StartingIntent As Intent)
 	' Broadcast Intents will transmit the data in 'sensorData' to other Apps
+	
+	' using a Timer is causing an App shutdown. Not yet fully investigated
+	'Public broadcastTimer As Timer
+	'broadcastTimer.Initialize("broadcastNow", Starter.broadcastFrequency)
+	'broadcastTimer.Enabled = True
 	Do While(Starter.runBackgroundTasks)
 		If (Starter.bleConnected ) Then
 			Send_Broadcast_Intents
 		End If
 		Sleep(Starter.broadcastFrequency)
 	Loop
+	'broadcastTimer.Enabled = False
 	Service.StopAutomaticForeground 'Call this when the background task completes (if there is one)
 End Sub
 
@@ -44,6 +50,12 @@ Sub Service_Destroy
 
 End Sub
 
+
+Sub broadcastNow_Click
+	If (Starter.bleConnected ) Then
+		Send_Broadcast_Intents
+	End If
+End Sub
 
 Sub Send_Broadcast_Intents
 	Dim i As Int

@@ -1,0 +1,40 @@
+
+Sub Calibration_Click
+	If Starter.bleConnected = False Then
+		Confirm_Dialog("Anemometer not connected via Bluetooth. Connect before running the Calibration process.", _
+					   "Calibration Process", "OK", "")
+		Return
+	End If
+	
+	' make sure we have the propper User Permission to write calibation data to file
+	Starter.rp.CheckAndRequest(Starter.rp.PERMISSION_WRITE_EXTERNAL_STORAGE)
+	Wait For Activity_PermissionResult(Permission As String, Result As Boolean)
+
+	If (Result=False) Or (File.ExternalWritable=False) Then
+		Confirm_Dialog("Cannot write to the default storage location. Missing User permission. Can not start the Calibration process", "Storage Access Error", "OK", "")
+		Return
+	End If
+
+	StartActivity(actCalibration)
+
+End Sub
+
+
+Sub Reset_Click
+	Dim answer As Boolean
+	Dim bc As ByteConverter
+	If Starter.bleConnected = False Then
+		answer = Confirm_Dialog("Anemometer not connected via Bluetooth. Connect before running the Reset process.", _
+					   "Anemometer Reset", "OK", "")
+	Else
+		Log("Main->Reset_Click() - Service ID: "&Starter.dataService&" reset UUID: "&Starter.cReset)
+		answer = Confirm_Dialog("Do you really want to reset the Anemometer. The process will take up to 3 minutes?", _
+					   "Anemometer Reset", "Yes", "No")
+		If answer Then
+			bc.LittleEndian = True
+			Starter.bleManager.WriteData(Starter.dataService, Starter.cReset, bc.HexToBytes( "01" ))
+			Starter.bleConnected = False
+			btnCONNECT.Text = "Scan"
+		End If
+	End If
+End Sub	

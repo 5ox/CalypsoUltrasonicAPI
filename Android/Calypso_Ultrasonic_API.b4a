@@ -1,15 +1,17 @@
 ﻿Build1=Light,com.calypsoinstruments.CalypsoUltrasonicAPI,Light,NoAds
 Build2=New_1,com.calypsoinstruments.CalysoUltrasonicAPI
 File1=actBleActivity.bal
+File10=ultra.jpg
 File2=actcalcomp.bal
 File3=api_icon.png
 File4=bt.png
-File5=calypso_drawer.jpg
-File6=connection.png
-File7=MainActivity.bal
-File8=textura_fibra_carbono.jpg
-File9=ultra.jpg
+File5=calibration_ultrasonic.png
+File6=calypso_drawer.jpg
+File7=connection.png
+File8=MainActivity.bal
+File9=textura_fibra_carbono.jpg
 FileGroup1=Default Group
+FileGroup10=Default Group
 FileGroup2=Default Group
 FileGroup3=Default Group
 FileGroup4=Default Group
@@ -34,7 +36,7 @@ Module2=BackgroundService
 Module3=actBLE
 Module4=ComputationTools
 Module5=actCalibration
-NumberOfFiles=9
+NumberOfFiles=10
 NumberOfLibraries=8
 NumberOfModules=5
 Version=8.3
@@ -46,15 +48,27 @@ Version=8.3
 ' Calibrate the on-board compass
 ' Interface to 3rd party Apps using Broadcast Intents / Broadcast Receivers
 '
+' Bearing data priotities: 1. GPS bearing
+'                          2. Ultrasonic Anemometer (when properly calibrated)
+'                          3. Phone magnetic compass (must be aligned with tick mark on Anemometer, set Preference Phone Compass True)
+' If GPS bearing is valid and GPS speed is > 1 kt, we use the GPS bearing as Compass
+' If GPS bearing is not available, we use the Anemometer eCompass data unless the User has Enabled the Phone Compass data utilization
+'
+' This App interprets all speed data in m/s and all directional data as True North. The broadcast directional
+' data can be True North or Magnetic North based on User Preference settings.  Speed data broadcast in m/s. 
+'
+' Implementation of 'Init_Phone_Compass' in Starter yields identical results to the algorithm described by Erel at
+' https://www.b4x.com/android/forum/threads/orientation-and-accelerometer.6647/page-6.  As this is easier, we use this method
+'
 ' Developed by Volker Petersen (volker.petersen01@gmail.com)
 ' July 2018
 ' -------------------------------------------------------------------------------------------------
 '
-' TODO write calibration data to file https://www.b4x.com/android/forum/threads/text-files.6690/
 ' TODO implement calibration with Excel test to confirm
 ' TODO calibration as 2 step process. Step 1: calibrate compass, Step 2: calibrate device mount by
 '      taking the difference between boat compass and device compass. That become the 'offsetAngle'.
-' TODO test/complete the sample rate updates on the device
+'      make a reset activity and a calibration activity
+'
 ' TODO implement RichString library to get Superscript letters 
 '
 ' to set App icon, select a file from /Files folder in Project->Choose Icon - file can have any name. 
@@ -85,6 +99,8 @@ Sub Process_Globals
 	Public uiUpdateFrequency As Int = 1000
 	Public yes As String = "Yes"
 	Public no As String = "No"
+	Dim portrait As Boolean
+
 End Sub
 
 Sub Globals
@@ -102,9 +118,6 @@ Sub Globals
 	Private lblCOMP As Label
 	Private lblLOCATION As Label
 	Private lblBROADCASTS As Label
-	Private accValues(3) As Float
-	Private magValues(3) As Float
-	Private accGrav(3) As Float
 End Sub
 
 Sub Activity_Create(FirstTime As Boolean)
@@ -116,11 +129,11 @@ Sub Activity_Create(FirstTime As Boolean)
 	Activity.AddMenuItem("Preferences","Preferences") 'top
 	Activity.AddMenuItem("Bluetooth Scan","Bluetooth") 'middle
 	Activity.AddMenuItem("Compass Calibration","Calibration") 'middle
+	Activity.AddMenuItem("Anemometer Reset","Reset") 'middle
+	Activity.AddMenuItem("About this App","About") 'middle
 	Activity.AddMenuItem("Exit App","Exit") 'bottom
 		
 	If FirstTime Then
-		Starter.phoneAccelerometer.Initialize(Starter.phoneAccelerometer.TYPE_MAGNETIC_FIELD)
-		Starter.phoneMagnetic.Initialize(Starter.phoneMagnetic.TYPE_MAGNETIC_FIELD)
 		Create_User_Preference_Screen
 		Starter.javaInline.InitializeContext
 	End If
@@ -132,6 +145,12 @@ End Sub
 
 Sub Activity_Resume	
 	Get_Current_Preference_Settings(False)			' fetch the lastest User Preference settings
+	
+	If Activity.Width > Activity.Height Then		' check if Phone is in Landscape or Portrait mode
+		portrait = False
+	Else
+		portrait = True
+	End If
 
 	'Starter.calcTools.test							' Kalman and Lowpass Filter testing completed
 
@@ -151,12 +170,14 @@ Sub Activity_Resume
 	End If
 	lblConnectionStatus.Text = Starter.bleStateText
 	
-	'Starter.phoneAccelerometer.StartListening("Accelerometer")
-	'Starter.phoneMagnetic.StartListening("Magnetic")
-	accGrav(0) = 0.0
-	accGrav(1) = 0.0
-	accGrav(2) = 0.0
-		
+	If Starter.bleConnected Then
+		btnCONNECT.Text = "Stop BLE"
+		btnCONNECT.Tag = "Stop"
+	Else
+		btnCONNECT.Text = "Scan for BLE"
+		btnCONNECT.Tag = "Scan"
+	End If
+			
 	' now start our Background Service (this function ensures that we always get restart the Service at any time)
 	Launch_Background_Services
 	
@@ -167,14 +188,20 @@ End Sub
 
 
 Sub Activity_Pause (UserClosed As Boolean)
-	Starter.phoneAccelerometer.StopListening
-	Starter.phoneMagnetic.StopListening
+	' stop the BLE Scan timeout timer
 	Starter.bleScanTimeout.Enabled = False
-	
+
 	' stop the uiTimer for the uiUpdate
 	uiTimer.Enabled = False
 	
 	Log("User Closed: "&UserClosed)
+	If UserClosed Then
+		StopService(BackgroundService)
+		Starter.runBackgroundTasks = False	' the background services stops when this Boolean is False
+		CallSub(Starter, "Service_Destroy")
+		Activity.Finish 					' and kill our APP.
+		ExitApplication
+	End If
 End Sub
 
 
@@ -185,17 +212,13 @@ Sub Activity_KeyPress (KeyCode As Int) As Boolean
 		Dim title As String = "Exit App?"
 	
 		If Confirm_Dialog(question, title, yes, no) Then
-			Starter.bleManager.Disconnect
-			StopService(BackgroundService)
-			Starter.runBackgroundTasks = False	' the background services stops when this Boolean is False
-			Starter.ctr_ble = 0					' reset the Broadcast Receiver send counter
-			Return False						' tell the OS that I take care of canceling the app
-			Activity.Finish 					'...or whatever other previous killing actions.
+			Activity.Finish 					' and kill our APP.
+			Return False					' this will yield a UserClosed=True in Activity_Pause
 		Else
-			Return True
+			Return True						' this will yield a UserClosed=False in Activity_Pause
 		End If
 	End If
-	Return False
+	Return True
 End Sub
 
 
@@ -204,9 +227,9 @@ Sub Launch_Background_Services
 		Starter.runBackgroundTasks = True	' the background services runs until this Boolean is False
 		StartService(BackgroundService)		' start Background Service for this App
 		btnCONNECT.Text = "BLE Stop"
-		Log("Main->Launch_Background_Services(): Background Services with Bluetooth status: " & Starter.bleManager.State)
+		'Log("Main->Launch_Background_Services(): Background Services with Bluetooth status: " & Starter.bleManager.State)
 	End If	
-	Log("Main->Launch_Background_Services(): pref Mac: "&Starter.prefBluetoothMAC)
+	'Log("Main->Launch_Background_Services(): pref Mac: "&Starter.prefBluetoothMAC)
 
 	' start the UI update timer with execution (clicks) every 'uiUpdateFrequency' milliseconds
 	uiTimer.Initialize("uiUpdate", uiUpdateFrequency)
@@ -217,22 +240,28 @@ End Sub
 
 Sub update_UI
 	Dim str, tmp As String
-	'Dim rs As RichString
-	'Dim rsb As RichStringBuilder
-
-	'rsb.Initialize
-	'rsb.Addend(str)
-	'rsb.Append ("({superscript}T{superscript}) ")
+	Dim compass, heading As Float
 	
 	lblAWA.Text = NumberFormat(Starter.sensorDataProcessed.Get("AWA"), 3, 0) & "º"
 	lblAWS.Text = NumberFormat2(Starter.sensorDataProcessed.Get("AWS")*Starter.speedToKnots, 1, 1, 1, False)
-	lblCOMP.Text = NumberFormat(Starter.sensorDataProcessed.Get("Compass"), 3, 0) & "º"
 	lblROLL.Text = NumberFormat(Starter.sensorDataProcessed.Get("Pitch"), 3, 0) & "º"
 	lblPITCH.Text = NumberFormat(Starter.sensorDataProcessed.Get("Roll"), 3, 0) & "º"
 	lblBATTERY.Text = NumberFormat(Starter.sensorDataProcessed.Get("Battery"), 1, 0) & "%"
 	lblTEMP.Text = NumberFormat2(Starter.sensorDataProcessed.Get("Temp"), 1, 1, 1, False) & "ºC"
-	lblCOG.Text = NumberFormat(Starter.sensorDataProcessed.Get("COG"), 3, 0) & "º"
 	lblConnectionStatus.Text = Starter.bleStateText
+	
+	If Starter.prefTrueNorth Then
+		compass = Starter.sensorDataProcessed.Get("Compass")
+		heading = Starter.sensorDataProcessed.Get("COG")
+		tmp = "ºT"
+	Else
+		compass = Starter.calcTools.TrueToMagneticNorth(Starter.sensorDataProcessed.Get("Compass"))
+		heading = Starter.calcTools.TrueToMagneticNorth(Starter.sensorDataProcessed.Get("COG"))
+		tmp = "ºM"
+	End If
+	lblCOMP.Text = NumberFormat(compass, 3, 0) & tmp
+	lblCOG.Text = NumberFormat(heading, 3, 0) & tmp
+
 	
 	If Starter.ctr_ble > 1 Then
 		str = Starter.ctr_ble & " API data transmissions (speeds in m/s, angles in "
@@ -249,11 +278,18 @@ Sub update_UI
 		tmp = Starter.gpsLocation.ConvertToMinutes(Starter.sensorData.Get("LON"))
 		str = str & "   Lon: " & tmp.SubString2(0, tmp.Length-2)
 	End If
-	If Starter.activeCompass Then
-		str = str & "   Hdg: " & NumberFormat(Starter.phoneCompass, 3, 0) & "º"
+
+	If Starter.validBearing Then
+		compass = heading
+	Else
+		compass = Starter.phoneCompass
+		If Starter.prefTrueNorth = False Then compass = Starter.calcTools.TrueToMagneticNorth(compass)
 	End If
-	If ( Abs(Starter.sensorData.Get("DEC")) > Starter.calcTools.precission ) Then
-		str = str & "   δ: " & NumberFormat(Starter.sensorData.Get("DEC"), 1, 1) & "º"
+	
+	str = str & "   Hdg: " & NumberFormat(compass, 3, 0) & "º"
+
+	If ( Abs(Starter.sensorData.Get("DECL")) > Starter.calcTools.precission ) Then
+		str = str & "   δ: " & NumberFormat(Starter.sensorData.Get("DECL"), 1, 1) & "º"
 	End If
 	lblLOCATION.Text = str
 End Sub
@@ -291,7 +327,7 @@ End Sub
 
 Sub Connecting_Bluetooth
 	btnCONNECT.Enabled = True
-	Starter.bleStateText = "Connecting to " & Starter.actual_ultra.MacAddress
+	Starter.bleStateText = "Connecting to " & Starter.connectedDevice.MacAddress
 	lblConnectionStatus.Text = Starter.bleStateText
 	btnCONNECT.Invalidate
 	btnCONNECT.Text = "Connecting..."
@@ -362,70 +398,6 @@ Sub Location_Services_Start
 End Sub
 
 
-Sub Accelerometer_SensorChanged(Values() As Float)
-	' in order to measure the real acceleration of the device, the contribution of 
-	' the force of gravity must be eliminated. We do that here using a lowpass filter
-	Dim alpha As Float = 0.8
-	Dim i As Int
-	
-	For i=0 To 2
-		accGrav(i) = accGrav(i)*alpha + Values(i)*(1-alpha)	' smooth with lowpass filter
-		accValues(i) = Values(i) - accGrav(i)
-	Next
-End Sub
-
-Sub Magnetic_SensorChanged(Values() As Float)
-	magValues = Values
-	Calc_Orientation
-End Sub
-
-
-'---------------------------------------------------------------------------------
-' Compute the magnetic orientation of the Device
-' https://www.b4x.com/android/forum/threads/orientation-and-accelerometer.6647/page-6#post-476271
-' https://stackoverflow.com/questions/8315913/how-to-get-direction-in-android-such-as-north-west
-' https://stackoverflow.com/questions/15315129/convert-magnetic-field-x-y-z-values-from-device-into-global-reference-frame
-Sub Calc_Orientation()
-	If accValues.Length = 0 Or magValues.Length = 0 Then		' TODO - this algo is not yielding correct Hdg
-		'Starter.sensorData.Put("MAG", 0.0)
-		Return
-	Else
-		#if B4A
-			Dim R(9), I(9) As Float
-			Dim success As Boolean = Starter.javaNative.RunMethod("getRotationMatrix", Array(R, I, accValues, magValues))
-			If success Then
-				
-				Dim orientation(3), A_D(3), A_W(3) As Float
-				Dim rad As Float
-				rad = 180.0/cPI
-				
-				A_D(0) = magValues(0)
-				A_D(1) = magValues(1)
-				A_D(2) = magValues(2)
-				
-				A_W(0) = R(0) * A_D(0) + R(1) * A_D(1) + R(2) * A_D(2)
-				A_W(1) = R(3) * A_D(0) + R(4) * A_D(1) + R(5) * A_D(2)
-				A_W(2) = R(6) * A_D(0) + R(7) * A_D(1) + R(8) * A_D(2)
-				
-				A_W(0) = (A_W(0) * rad + 360.0) Mod 360.0
-				A_W(1) = (A_W(1) * rad + 360.0) Mod 360.0
-				A_W(2) = (A_W(2) * rad + 360.0) Mod 360.0
-
-				
-				Starter.javaNative.RunMethod("getOrientation", Array(R, orientation))
-				Starter.phoneCompass = (orientation(0) * rad + 360.0) Mod 360.0
-				'Starter.sensorData.Put("MAG", Starter.phoneCompass)
-				Log("Main->Location_Services_Start(): Phone compass direction: " & NumberFormat(Starter.phoneCompass, 3, 0))
-				Log("orientation(0): " & ( (orientation(0) * rad + 360.0) Mod 360.0) & "A_W(0) = " & A_W(0) )
-				Log("orientation(1): " & ( (orientation(1) * rad + 360.0) Mod 360.0) & "A_W(1) = " & A_W(1) )
-				Log("orientation(2): " & ( (orientation(2) * rad + 360.0) Mod 360.0) & "A_W(2) = " & A_W(2) )
-
-				Starter.activeCompass = True
-			End If
-		#end if
-	End If
-End Sub
-
 
 '---------------------------------------------------------------------------------
 ' ActionBar Menu options click actions
@@ -443,13 +415,21 @@ Sub Bluetooth_Click
 End Sub
 
 
+
 Sub Calibration_Click
+	' Resumable Sub because of the 'Wait For' call...
+	If (Starter.bleConnected = False) And (Starter.cCalComp.StartsWith( "0000a00b" ) = False) Then
+		Confirm_Dialog("Anemometer not yet connected via Bluetooth. Connect before running the Calibration process.", _
+					   "Calibration Process", "OK", "")
+		Return
+	End If
+	
 	' make sure we have the propper User Permission to write calibation data to file
 	Starter.rp.CheckAndRequest(Starter.rp.PERMISSION_WRITE_EXTERNAL_STORAGE)
 	Wait For Activity_PermissionResult(Permission As String, Result As Boolean)
 
 	If (Result=False) Or (File.ExternalWritable=False) Then
-		Msgbox2("Cannot write to the default storage location. Missing User permission. Can not start the calibration process", "Storage Access Error", "OK", "", "", Starter.appIcon)
+		Confirm_Dialog("Cannot write to the default storage location. Missing User permission. Can not start the Calibration process", "Storage Access Error", "OK", "")
 		Return
 	End If
 
@@ -458,17 +438,44 @@ Sub Calibration_Click
 End Sub
 
 
-Sub Exit_Click
-	Dim question As String = "Do you really want to exit this App and shutdown the datafeed from the Anemometer?"
-	Dim title As String = "Exit App?"
-	
-	If Confirm_Dialog(question, title, yes, no) Then
-		' Stop our Background Service
-		Starter.bleManager.Disconnect
-		Starter.runBackgroundTasks = False	' the background services stops when this Boolean is False
-		Starter.ctr_ble = 0					' reset the Broadcast Receiver send counter
-		Activity.Finish
+Sub Reset_Click
+	Dim answer As Boolean
+	Dim bc As ByteConverter
+	If (Starter.bleConnected = False) And (Starter.cReset.StartsWith( "0000a00a" ) = False) Then
+		answer = Confirm_Dialog("Anemometer not yet connected via Bluetooth. Connect before running the Reset process.", _
+					   "Anemometer Reset", "OK", "")
+	Else
+		Log("Main->Reset_Click() - Service ID: "&Starter.anemometerServiceID&" reset UUID: "&Starter.cReset)
+		answer = Confirm_Dialog("Do you really want to reset the Anemometer. The process will take up to 3 minutes?", _
+					   "Anemometer Reset", "Yes", "No")
+		If answer Then
+			bc.LittleEndian = True
+			Starter.bleManager.WriteData(Starter.anemometerServiceID, Starter.cReset, bc.HexToBytes( "01" ))
+			Starter.bleConnected = False
+			btnCONNECT.Text = "Scan"
+		End If
 	End If
+End Sub
+	
+
+Sub About_Click
+	Dim str As String
+	Dim feedback As Int
+	Dim i As Intent
+	str = "This API app establishes a Bluetooth connection to the Calypso Ultrasonic Anemometer"
+	str = str & " and broadcasts a data stream via Intents to other Apps. 3rd party App should utilize"
+	str = str & " Broadcast Receivers to receive the data stream. "
+	str = str & "Please click 'Help' to get more information from the App's webpage."
+	feedback = Msgbox2(str, "About the App", "Help", "", "OK", Starter.appIcon)
+	
+	If feedback = DialogResponse.POSITIVE Then
+		i.Initialize(i.ACTION_VIEW, "https://calypsoinstruments.com/")
+		StartActivity(i)
+	End If
+End Sub
+
+Sub Exit_Click
+	Activity_KeyPress(KeyCodes.KEYCODE_BACK)
 End Sub
 
 
@@ -492,6 +499,7 @@ Sub Create_User_Preference_Screen
 	Dim cat1, cat2 As PreferenceCategory
 	cat1.Initialize("Software Parameters")
 	cat1.AddCheckBox("TrueNorth", "Direction Data", "Display direction data as True North (on) or Magnetic North (off)", False)
+	cat1.AddCheckBox("PhoneCompass", "Utilize Phone Compass", "Utilize Phone Compass instead of the Anemometer build-in compass (phone must be aligned with tick mark on the Anemometer!).", False)
 	cat1.AddList("SampleRate", "Sample Rate", "The higher the frequency, the higher the power consumption.", _
         "4 samples/second", Array As String("1 sample/second", "4 samples/second", "8 samples/second"))
 	'cat1.AddCheckBox("Smoothing", "Data Smoothing", "Smooth the instrument data (on/off)", True)
@@ -519,6 +527,7 @@ Sub Set_Default_User_Preferences
 	Starter.prefManager.SetBoolean("TrueNorth", True)
 	Starter.prefManager.SetString("bleName", Starter.defaultSensorName)
 	Starter.prefManager.SetString("bleMAC", Starter.invalidMAC)
+	Starter.prefManager.SetBoolean("PhoneCompass", False)
 End Sub
 
 
@@ -549,6 +558,7 @@ Sub Get_Current_Preference_Settings(verbose As Boolean)
 	End Select
 	Starter.prefErrReporting = Starter.prefManager.GetBoolean("ErrReporting")
 	Starter.prefTrueNorth = Starter.prefManager.GetBoolean("TrueNorth")
+	Starter.prefPhoneCompass = Starter.prefManager.GetBoolean("PhoneCompass")
 	
 	If (Starter.prefManager.GetString("bleMAC") = Starter.invalidMAC) Then
 		Starter.prefBluetoothName = Starter.defaultSensorName
@@ -560,13 +570,21 @@ Sub Get_Current_Preference_Settings(verbose As Boolean)
 	
 	Starter.calcTools.Initialize
 	
+	If Starter.prefPhoneCompass Then
+		' if User wants to utilize phone compass, initialize the service.
+		CallSub(Starter, "Init_Phone_Compass")
+	Else
+		Starter.phoneSensors.StopListening
+	End If
+	
 	If verbose Then
-		Log("Main->Get_Current_Preference_Settings(): Sample Rate: "&Starter.prefSampleRate)
-		Log("Main->Get_Current_Preference_Settings(): Smoothing F: "&Starter.prefSmoothing)
-		Log("Main->Get_Current_Preference_Settings(): Err Report : "&Starter.prefErrReporting)
-		Log("Main->Get_Current_Preference_Settings(): True North:  "&Starter.prefTrueNorth)
-		Log("Main->Get_Current_Preference_Settings(): Mac Name:    "&Starter.prefBluetoothName)
-		Log("Main->Get_Current_Preference_Settings(): Mac Add:     "&Starter.prefBluetoothMAC)
+		Log("Main->Get_Current_Preference_Settings(): Sample Rate:   "&Starter.prefSampleRate)
+		Log("Main->Get_Current_Preference_Settings(): Smoothing Fac: "&Starter.prefSmoothing)
+		Log("Main->Get_Current_Preference_Settings(): Err Report :   "&Starter.prefErrReporting)
+		Log("Main->Get_Current_Preference_Settings(): True North:    "&Starter.prefTrueNorth)
+		Log("Main->Get_Current_Preference_Settings(): Phone Compass: "&Starter.prefPhoneCompass)
+		Log("Main->Get_Current_Preference_Settings(): Mac Name:      "&Starter.prefBluetoothName)
+		Log("Main->Get_Current_Preference_Settings(): Mac Add:       "&Starter.prefBluetoothMAC)
 	End If
 End Sub
 

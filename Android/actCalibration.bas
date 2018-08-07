@@ -17,25 +17,24 @@ End Sub
 Sub Globals
 	'These global variables will be redeclared each time the activity is created.
 	'These variables can only be accessed from this module.
-	Private btnAdd As Button
 	Private btnCalibrate As Button
+	Private btnReset As Button
 	Private imgLOGO As ImageView
 	Private imgULTRA As ImageView
 	Private lblMESSAGE As Label
 	Private lblRevCtr As Label
-	Private instructions As String
+	Private instructions1 As String
+	Private instructions2 As String
 	Public fileName As String
 End Sub
 
 Sub Activity_Create(FirstTime As Boolean)
 	'Do not forget to load the layout file created with the visual designer. For example:
 	Activity.LoadLayout("actcalcomp")
-	btnCalibrate.Text = "Start Calibration"
-	btnCalibrate.Tag = "Start"
-	btnAdd.Visible = False
-	instructions = "To calibrate the compass execute 2 complete clockwise turns at a rate of 30-60sec per turn. Hit the button when you are ready...."
-	lblMESSAGE.Text = instructions
-	lblRevCtr.Text = ""
+	btnCalibrate.Text = "Phase II"
+	btnCalibrate.Tag = "PhaseII"
+	btnReset.Text = "Reset"
+	btnReset.Tag = "Reset"
 	fileName = "CompassCalibrationData.txt"
 
 	If File.ExternalWritable = False Then
@@ -54,7 +53,16 @@ End Sub
 
 Sub Activity_Resume
 	Activity.Title = "Compass Calibration - Phase I"
-
+	instructions1 = "Calibration Process Phase I: Device Reset. Hit the 'Reset' button to reset the device. When the reset is completed and the Bluetooth reconnected, hit the 'Phase II' button."
+	instructions2 = "To calibrate the compass execute 2 complete clockwise turns at a rate of 50-100 data points per turn. Hit the button when you are ready to start...."
+	lblMESSAGE.Text = instructions1
+	lblRevCtr.Text = ""
+	
+	If Starter.calibrationReset Then
+		btnCalibrate.Enabled = True
+	Else
+		btnCalibrate.Enabled = False
+	End If
 End Sub
 
 Sub Activity_Pause (UserClosed As Boolean)
@@ -62,35 +70,59 @@ Sub Activity_Pause (UserClosed As Boolean)
 End Sub
 
 
-Sub btnAdd_Click
-	'
+Sub btnReset_Click
+	' Factory reset
+	Dim str As String 
+	Dim bc As ByteConverter
+	
+	str = "01"
+	bc.LittleEndian = True
+	
+	If Starter.bleNotify And Starter.cReset.StartsWith( "0000a00a" ) Then
+		Starter.bleManager.WriteData(Starter.anemometerServiceID, Starter.cReset, bc.HexToBytes(str))
+		Msgbox2("Resetting now. Please wait 3 min to reconnect the Bluetooth connection and then return to this Calibration screen.", _
+		"Anemometer reset", "OK", "", "", Starter.appIcon)
+		Activity.Title = "Compass Calibration - Phase II"
+		lblRevCtr.Text = ""
+		Starter.bleConnected = False
+		Starter.calibrationReset = True
+		Activity.Finish
+	Else
+		Msgbox2("No Bluetooth connection. Please make sure the phone receives data from the Anemometer", _
+		"Reset failed", "OK", "", "", Starter.appIcon)
+		Activity.Finish
+	End If
 End Sub
 
 Sub btnCalibrate_Click
 	Dim feedback As Int
-	If btnCalibrate.Tag = "Start" Then
+	
+	If btnCalibrate.Tag = "PhaseII" Then
 		Starter.compCalValues.Initialize
 		Starter.compCalCtr = 0
 		Starter.compCalNow = True
 		Starter.offsetAngle = 0
-		btnCalibrate.Text = "Stop Calibration"
+		btnCalibrate.Text = "Stop Cal"
 		btnCalibrate.Tag = "Stop"
-		lblMESSAGE.Text = instructions
+		lblMESSAGE.Text = instructions2
 		lblRevCtr.Text = "0 turns"
-	Else
+	Else If btnCalibrate.Tag = "Stop" Then
 		Starter.compCalNow = False
 		feedback = Msgbox2("Do you want to Stop&Save or Restart this calibration process?", _
 		"Calibration Process Status", "Stop&Save", "", "Restart", Starter.appIcon )
 		If (feedback = DialogResponse.POSITIVE) Then
-			btnCalibrate.Text = "Start Phase II"
-			btnCalibrate.Tag = "II"
+			btnCalibrate.Text = "Phase III"
+			btnCalibrate.Tag = "PhaseIII"
 			Save_Calibration_Data
 			' execute Phase II of the calibration process - set the offset angle
+			Activity.Finish
 		Else
 			lblMESSAGE.Text = "Canceled last calibration process. Hit the button when you are ready to start again...."
 			btnCalibrate.Text = "Start Calibration"
-			btnCalibrate.Tag = "Start"
+			btnCalibrate.Tag = "PhaseII"
 		End If
+	Else
+		' pass
 	End If	
 End Sub
 

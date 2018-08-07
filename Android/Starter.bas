@@ -19,31 +19,30 @@ Sub Process_Globals
 	'These global variables will be declared once when the application starts.
 	'These variables can be accessed from all modules.
 	Public runBackgroundTasks As Boolean
-	Public broadcastFrequency As Int		' frequency (in milliseconds) of Broadcast Intent transmissions
-	Public javaInline As JavaObject 		' object for Inline Java code imbedded in B4a program Starter()
-	Public javaNative As JavaObject 		' object for Native Java object to be called
+	Public broadcastFrequency As Int	' frequency (in milliseconds) of Broadcast Intent transmissions
+	Public javaInline As JavaObject 	' object for Inline Java code imbedded in B4a program Starter()
+	Public javaNative As JavaObject 	' object for Native Java object to be called
 	Public rp As RuntimePermissions
-	Public allowReport As Boolean = True	' allowed error reporting by user / TODO set up as preferences
+	Public allowReport As Boolean=True	' allowed error reporting by user / TODO set up as preferences
 	Private logs As StringBuilder
 	Private logcat As LogCat
 	Public appIcon As Bitmap
 	
 	' User Preferences
 	Dim prefManager As PreferenceManager	' User Preference Manager
-	Dim prefScreen As PreferenceScreen		' User Preference Screen
-	Public prefSmoothing As Float			' data smoothing on (<1.0) / off (=1.0)
-	Public prefSampleRate As Int			' data aquisition frequency (sample Rate) 1Hz, 4Hz, 8Hz
-	Public prefErrReporting As Boolean		' allow error/crash reporting
-	Public prefTrueNorth As Boolean			' True yields True North, False yields Magnetic North
-	Public prefBluetoothName As String		' Name of the last connected Bluetooth Device
-	Public prefBluetoothMAC As String		' Mac Address of the last connected Bluetooth Device
+	Dim prefScreen As PreferenceScreen	' User Preference Screen
+	Public prefSmoothing As Float		' data smoothing on (<1.0) / off (=1.0)
+	Public prefSampleRate As Int		' data aquisition frequency (sample Rate) 1Hz, 4Hz, 8Hz
+	Public prefErrReporting As Boolean	' allow error/crash reporting
+	Public prefTrueNorth As Boolean		' True yields True North, False yields Magnetic North
+	Public prefBluetoothName As String	' Name of the last connected Bluetooth Device
+	Public prefBluetoothMAC As String	' Mac Address of the last connected Bluetooth Device
+	Public prefPhoneCompass As Boolean	' when true we use the phone compass data when we don't have valid GPS heading data
 
 	' Phone services
-	Public phoneManager As Phone
-	Public phoneAccelerometer As PhoneSensors
-	Public phoneMagnetic As PhoneSensors
-	Public phoneCompass As Float
-	Public activeCompass As Boolean = False
+	Public phoneManager As Phone		' get us the Phone device class
+	Public phoneSensors As PhoneSensors	' get us the Phone Sensors class.
+	Public phoneCompass As Float		' Otherwise we use the Phone magnetic sensor data (phone must be aligned with boat)
 	
 	' Bluetooth variables
 	Public bleEnabled As Boolean		' true if Bluetooth is turned on and enabled by user
@@ -57,10 +56,11 @@ Sub Process_Globals
 	Public bleConnectTimeout As Timer	' timeout timer for the Bluetooth device connection process
 	
 	' Location Services
-	Public gpsManager As GPS
+	Public gpsManager As GPS			' get us the phone's Location Services (GPS) class
 	Public gpsChanged As Boolean		' true if Location changed
 	Public gpsLocation As Location		' holds latest GPS loaction
 	Public activeGPS As Boolean			' true if Location Services are enabled
+	Public validBearing As Boolean		' true if the Location service yields a valid heading data
 	Public gpsStarted As Boolean		' true if the Location Services are running
 	Public gpsString As String			' String with GPS status msg
 	Public localDeclination As Float	' local Declination data, updated in Location Services
@@ -79,13 +79,13 @@ Sub Process_Globals
 	Public dataFieldsAPI As List		' data fields that will be transmitted by the API (using Broadcast Intents)
 	
 	Type tUltra(Name As String, MacAddress As String, RSSI As Double)
-	Public actual_ultra As tUltra		' tUltra data of the actual device connected to this App
+	Public connectedDevice As tUltra	' tUltra data of the actual device connected to this App
 	
 	Public timeout As Long = 15000		' timeout in milliseconds for the BLE scan
 	Public tryTimes As Int = 0
 
-	Dim sUltra As String 				' Services of the connected Ultra device
-	Dim cNormal, cRate, cSensors, cStatus, cNmea, cCalComp As String
+	Public anemometerServiceID As String 	' Service ID of the Data Services for the connected Ultra device
+	Dim cNormal, cRate, cSensors, cStatus, cReset, cCalComp As String
 	
 	Public invalidMAC As String = "??:??"
 	Public defaultSensorName As String = "Ultrasonic Anemometer"
@@ -97,6 +97,8 @@ Sub Process_Globals
 	
 	Public calcTools As ComputationTools ' class of various calculation tools & methods
 	Public speedToKnots As Float
+	
+	Public calibrationReset As Boolean	' keep track if a reset has been done as part of the multi step calibration process
 	
 End Sub
 
@@ -111,13 +113,15 @@ Sub Service_Create
 	runBackgroundTasks = True
 	broadcastFrequency = 1000   		' time between transmissions in milliseconds
 	
-	gpsManager.Initialize("GPS")		' initialize the Location Services
-	activeGPS = gpsManager.GPSEnabled
+	' initialize the phone's GPS, compass, and Bluetooth services
+	gpsManager.Initialize("GPS")		' initialize the Location Services	
+	validBearing = False
+	activeGPS = (gpsManager.GPSEnabled And gpsManager.IsInitialized)
 	bleManager.Initialize("BLE")		' initialize the Bluetooth device
 	
 	' initialize the Sensor data (GPS->Location and BLE->Anemometer) dictionaries and Data Fields
 	dataFields.Initialize2(Array As String("Battery", "Temp", "AWA", "AWD", "AWS", "TWA", "TWD", "TWS", _
-			"Pitch", "Roll", "Compass", "ALT", "LAT", "LON", "COG", "SOG", "DEC", "STATUS"))
+			"Pitch", "Roll", "Compass", "ALT", "LAT", "LON", "COG", "SOG", "DECL", "STATUS"))
 	dataFieldsFilter.Initialize2(Array As String("AWA", "AWS", "Pitch", "Roll", "Compass", "COG", "SOG"))
 	dataFieldsCircular.Initialize2(Array As String("AWA", "Compass", "COG"))
 	dataFieldsAPI.Initialize2(Array As String("Battery", "Temp", "AWA", "AWD", "AWS", "TWA", "TWD", "TWS", _
@@ -135,10 +139,10 @@ Sub Service_Create
 	bleStateText = "BLE Disconnected"
 	ctr_ble = 0
 	
-	actual_ultra.Initialize
-	actual_ultra.Name = "unkown"
-	actual_ultra.MacAddress = invalidMAC
-	actual_ultra.RSSI = 0.0
+	connectedDevice.Initialize
+	connectedDevice.Name = "unkown"
+	connectedDevice.MacAddress = invalidMAC
+	connectedDevice.RSSI = 0.0
 	
 	appIcon = LoadBitmap(File.DirAssets, "api_icon.png")
 
@@ -146,22 +150,21 @@ Sub Service_Create
 	javaNative.InitializeStatic("android.hardware.SensorManager")
 
 	calcTools.Initialize
-	speedToKnots = 1.943844492		' m/s to knots
+	speedToKnots = 1.943844492		' m/s to knots conversion -> 1.943844492 kts per m/s
 	localDeclination = 999.0		' default value that will force update with actual value from phone
 	compCalValues.Initialize
 	compCalNow = False
+	calibrationReset = False
 End Sub
 
 Sub Service_Start (StartingIntent As Intent)
-	
+	If prefPhoneCompass Then Init_Phone_Compass
 End Sub
 
 Sub Service_TaskRemoved
 	'This event will be raised when the user removes the app from the recent apps list.
-	bleManager.Disconnect
-	Sleep(500)
 	Service_Destroy
-	ExitApplication
+
 End Sub
 
 
@@ -178,7 +181,7 @@ Sub Application_Error (Error As Exception, StackTrace As String) As Boolean
 	Dim email As Email
 	'email.To.Add("anemotrackerdev@gmail.com")
 	email.To.Add("volker.petersen01@gmail.com")
-	email.Subject = "App crash report " & actual_ultra.macaddress & " " & phoneManager.Manufacturer
+	email.Subject = "App crash report " & connectedDevice.macaddress & " " & phoneManager.Manufacturer
 	email.Subject = email.Subject & " " & phoneManager.Model & " " & phoneManager.Product
 	email.Body = logs
 	StartActivity(email.GetIntent)
@@ -186,7 +189,10 @@ Sub Application_Error (Error As Exception, StackTrace As String) As Boolean
 End Sub
 
 Sub Service_Destroy
+	Log("Starter->Service_Destroy(): Shutting App down now...")
+	bleManager.Disconnect
 	gpsManager.Stop
+	phoneSensors.StopListening
 End Sub
 
 
@@ -204,7 +210,7 @@ End Sub
 '--------------------------------------------------------------------------------------------------
 Public Sub StartGPS
 	If activeGPS  And gpsStarted = False Then
-		gpsManager.Start(450, 25)		' update every 450 milliseconds or 25 meters
+		gpsManager.Start(250, 10)		' update every 250 milliseconds or 10 meters
 		gpsStarted = True
 		
 	End If
@@ -221,18 +227,22 @@ Sub GPS_LocationChanged(myLocation As Location)
 	' store the current location data in the global dictionary 'sensorData'
 	sensorData.Put("LAT", myLocation.Latitude)
 	sensorData.Put("LON", myLocation.Longitude)
-	If myLocation.BearingValid Then
-		sensorData.Put("COG", myLocation.Bearing)
-		activeCompass = True
-		phoneCompass = myLocation.Bearing
-	Else
-		sensorData.Put("COG", 0.0)
-		activeCompass = False
-	End If
 	If myLocation.SpeedValid Then
 		sensorData.Put("SOG", myLocation.Speed)
 	Else
 		sensorData.Put("SOG", 0.0)
+	End If
+	If myLocation.BearingValid Then
+		sensorData.Put("COG", myLocation.Bearing)
+		If (sensorData.Get("SOG") > 0.514444) Then		' need at least 1kt=0.514444 m/s of boat speed before we trust COG data
+			sensorData.Put("Compass", myLocation.Bearing)
+			validBearing = True
+			'Log("Used GPS compass value")
+		End If
+		phoneCompass = myLocation.Bearing
+	Else
+		sensorData.Put("COG", 0.0)
+		validBearing = False
 	End If
 	If myLocation.AccuracyValid Then
 		sensorData.Put("STATUS", myLocation.Accuracy)
@@ -245,10 +255,11 @@ Sub GPS_LocationChanged(myLocation As Location)
 		sensorData.Put("ALT", 10.0)
 	End If
 	If localDeclination > 990.0 Then
-		localDeclination = magDeclination ' get the magnetic delication at the current location & altitude
-		Log("Starter->after magDeclination() : localDeclination = " & localDeclination)
+		' get the magnetic delication at the current location & altitude
+		localDeclination = magDeclination
+		'Log("Starter->after magDeclination() : localDeclination = " & localDeclination)
 	End If
-	sensorData.Put("DEC", localDeclination)
+	sensorData.Put("DECL", localDeclination)
 
 End Sub
 
@@ -263,7 +274,35 @@ Sub magDeclination() As Float
 	#end if
 	Return magDec
 End Sub
+
 #End Region
+
+#Region Orientation
+'--------------------------------------------------------------------------------------------------
+' Phone Orientation
+'--------------------------------------------------------------------------------------------------
+Sub Init_Phone_Compass
+	phoneSensors.Initialize2(phoneSensors.TYPE_ORIENTATION, 3)  ' slowest rate of phone's compass data
+	phoneSensors.StartListening("orientation")					' data comes to sub "orientation_SensorChanged"
+End Sub
+
+Sub orientation_SensorChanged (Values() As Float)
+	' only use this value if User Preferences allow it and we don't have a valid Bearing from the GPS
+	'Log("Starter->orientation_SensorChanged(): Phone Compass: " & NumberFormat(Values(0), 3, 0) & " | "  & NumberFormat(Values(1), 3, 0) & " | " &NumberFormat(Values(2), 3, 0))
+	If validBearing=False And prefPhoneCompass Then
+		phoneCompass = Values(0)
+		If Not( Main.portrait ) Then
+			phoneCompass = (phoneCompass + 90) Mod 360
+		End If
+		
+		' force compass data to True North so that all internal App directional data is True North 
+		phoneCompass= calcTools.MagneticToTrueNorth(phoneCompass)
+		sensorData.Put("Compass", phoneCompass)
+		'Log("Used Phone compass Orientation value: " & NumberFormat(phoneCompass, 3, 0))
+	End If
+End Sub
+#End Region 
+
 
 #Region BLE
 '--------------------------------------------------------------------------------------------------
@@ -297,7 +336,7 @@ Sub ConnectBle( ultra As tUltra )
 	bleManager.StopScan
 	bleScanTimeout.Enabled = False
 
-	actual_ultra = ultra
+	connectedDevice = ultra
 	CallSubDelayed(Main, "Connecting_Bluetooth")				' update the UI to the current action
 	Log("Starter->ConnectBLE(): starting connection process for Mac: "&ultra.MacAddress)
 	bleConnectTimeout.Initialize("bleConnectTimeout", timeout)
@@ -309,17 +348,17 @@ Sub BLE_Connected (Services As List)
 	bleConnectTimeout.Enabled = False
 	bleNotify = False
 	bleConnected = True
-	Log("Starter->BLE_Connect(): known device " & (prefBluetoothMAC = actual_ultra.MacAddress))
-	If (prefBluetoothMAC = actual_ultra.MacAddress) Then
+	Log("Starter->BLE_Connect(): known device " & (prefBluetoothMAC = connectedDevice.MacAddress))
+	If (prefBluetoothMAC = connectedDevice.MacAddress) Then
 		' for KOWN device, use the name from the User Preference setting
 		bleStateText = "BLE '" & prefBluetoothName & "' Connected."
 		Log("Starter->BLE_Connect(): to known device " & prefBluetoothName)
 	Else
 		' for UNKOWN device, use actual Name and update the User Preference "bleMAC" setting
-		bleStateText = "BLE '" & actual_ultra.Name & "' Connected."
-		prefBluetoothName = actual_ultra.Name
-		prefBluetoothMAC = actual_ultra.MacAddress
-		prefManager.SetString("bleMAC", actual_ultra.MacAddress)
+		bleStateText = "BLE '" & connectedDevice.Name & "' Connected."
+		prefBluetoothName = connectedDevice.Name
+		prefBluetoothMAC = connectedDevice.MacAddress
+		prefManager.SetString("bleMAC", connectedDevice.MacAddress)
 	End If
 	cNormal = ""
 	cRate = ""
@@ -331,6 +370,7 @@ Sub BLE_Connected (Services As List)
 			bleManager.ReadData(s)					' this service yields the Device Information
 		End If
 	Next
+	
 	CallSub(Main, "Launch_Background_Services")
 End Sub
 
@@ -339,11 +379,11 @@ Sub BLE_Disconnected
 	bleConnectTimeout.Enabled = False
 	bleScanTimeout.Enabled = False
 	bleNotify = False
-	'ToastMessageShow( "Disconnected from " & actual_ultra.MacAddress, False )
-	If (prefBluetoothMAC = actual_ultra.MacAddress) Then
+	'ToastMessageShow( "Disconnected from " & connectedDevice.MacAddress, False )
+	If (prefBluetoothMAC = connectedDevice.MacAddress) Then
 		bleStateText = "BLE '" & prefBluetoothName & "' Disconnected!"
 	Else
-		bleStateText = "BLE '" & actual_ultra.Name & "' Disconnected!"
+		bleStateText = "BLE '" & connectedDevice.Name & "' Disconnected!"
 	End If
 	
 	' set all sensor data fields to zero
@@ -383,13 +423,13 @@ End Sub
 
 Sub BLE_DataAvailable (ServiceId As String, Characteristics As Map)
 	Dim bc As ByteConverter
-	Dim value(1) As Short		' one array element with 2 bytes (=Short)
+	Dim value As String
 	Dim sr As Short
 	'Dim millis As Long = DateTime.Now
 	
-	If ServiceId.StartsWith( "0000180d" ) Then
+	If serviceID.StartsWith( "0000180d" ) Then
 		' Sensor Data available under this ServiceID
-		sUltra = ServiceId
+		anemometerServiceID = serviceID
 		If Not( bleNotify ) Then
 			For Each id As String In Characteristics.Keys
 								
@@ -400,38 +440,46 @@ Sub BLE_DataAvailable (ServiceId As String, Characteristics As Map)
 					Log( "Starter->BLE_DataAvailable(): BLE Device Status: " & sr)
 				End If
 				
-				' Sample Rate - set it to match the Preference settings as necessary
+				' Sample Rate - set it to match the User Preference settings
 				If id.StartsWith( "0000a002" ) Then
 					cRate = id
-					
-					value(0) = prefSampleRate
-					bc.LittleEndian = True
-					Sleep(200)
-					'bleManager.WriteData( sUltra, cRate,  bc.HexToBytes( "01" ) )
-					bleManager.WriteData( sUltra, cRate,  bc.ShortsToBytes( value ) )
-					Log( "Starter->BLE_DataAvailable(): SET the BLE Device Sample Rate: " & prefSampleRate)
-					Sleep(2000)
+
 					sr = bc.HexFromBytes(Characteristics.Get(cRate))
-					Log("Starter->BLE_DataAvailable(): FOUND new sample rate: " & sr)
+					Log("Starter->BLE_DataAvailable(): FOUND sample rate: " & sr)
+					
+					If deviceType=2 Then
+						If prefSampleRate = 1 Then
+							value = "01"
+						Else If prefSampleRate = 8 Then
+							value = "08"
+						Else
+							value = "04"
+						End If
+						bleManager.WriteData( anemometerServiceID, cRate,  bc.HexToBytes( value ) )
+						Log( "Starter->BLE_DataAvailable(): SET the BLE Device Sample Rate: " & value)
+						Sleep(250)
+						bleManager.ReadData2(anemometerServiceID, cRate)
+					End If
+
 				End If
 
 				' Data Service that can also enable the BLE Notification feature
 				If id.StartsWith( "00002a39" ) Then					' sensor data feed is on
 					cNormal = id
-					bleManager.SetNotify( sUltra, cNormal, True )
+					bleManager.SetNotify( anemometerServiceID, cNormal, True )
 					bleNotify = True
+				End If
+				
+				' Firmware Update or Device Reset
+				If id.StartsWith( "0000a00a" ) Then
+					cReset = id
 				End If
 				
 				' Read calibration mode
 				If id.StartsWith( "0000a00b" ) Then
 					cCalComp = id
-					sr = bc.HexFromBytes(Characteristics.Get(cCalComp))
-					Log( "Starter->BLE_DataAvailable(): BLE Device Calibration Mode: " & sr)
-				End If
-				
-				' Not implemented
-				If id.StartsWith( "0000b001" ) Then
-					cNmea = id
+					'sr = bc.HexFromBytes(Characteristics.Get(cCalComp))
+					'Log( "Starter->BLE_DataAvailable(): BLE Device Calibration Mode: " & sr)
 				End If
 				
 				' Device Characteristic (Read/Write): Activate Roll/Pitch/Compass (0=Off, 1=On)
@@ -441,7 +489,7 @@ Sub BLE_DataAvailable (ServiceId As String, Characteristics As Map)
 					Sleep(250)
 					Log( "Switch Roll/Pitch/Compass Sensor on")
 					bc.LittleEndian = True
-					bleManager.WriteData( sUltra, cSensors,  bc.HexToBytes( "01" ) )
+					bleManager.WriteData( anemometerServiceID, cSensors,  bc.HexToBytes( "01" ) )
 					Sleep(250)
 				End If
 			Next			
@@ -458,6 +506,8 @@ Sub BLE_DataAvailable (ServiceId As String, Characteristics As Map)
 			Dim aws, awa, compass As Float
 
 			bc.LittleEndian = True	' The least significant byte (LSB) value is at the lowest address
+			' java.lang.RuntimeException: java.lang.NumberFormatException: For input string: "00000000F02B0020F42B0020482C00209C2C"
+			
 			' Data structure and bytes utilized
 			' 0-1: aws
 			' 2-3: awa
@@ -488,8 +538,9 @@ Sub BLE_DataAvailable (ServiceId As String, Characteristics As Map)
 				bc.ArrayCopy(Characteristics.Get(cNormal), 8, cVars, 0, 2 ) ' copy 2 bytes with offset 8 into 2 bytes
 				sVars = bc.ShortsFromBytes( cVars )
 				compass = (360.0-sVars(0) + offsetAngle) Mod 360
-				Log("COMPASS: 1-0 = " & ToUnsigned(cVars(1)) & " : " & ToUnsigned(cVars(0)) & "   sVars= " _
-							& sVars(0) & "  comp=" & compass)
+				'Log("COMPASS: 1-0 = " & ToUnsigned(cVars(1)) & " : " & ToUnsigned(cVars(0)) & "   sVars= " & sVars(0) & "  comp=" & compass)
+
+				' save raw compass readings into List 'compCalValues'
 				If compCalNow Then
 					compCalValues.Add(compass)
 					compCalCtr = compCalCtr + 1
@@ -500,18 +551,22 @@ Sub BLE_DataAvailable (ServiceId As String, Characteristics As Map)
 						CallSub(actCalibration, "UI_Update")
 					End If
 				End If
-				If prefTrueNorth Then
-					compass = (compass-sensorData.Get("DEC")+360) Mod 360
+				
+				If validBearing = False And prefPhoneCompass = False Then
+					' force compass data to True North so that all internal App directional data is True North
+					compass = calcTools.MagneticToTrueNorth(compass)
+					
+					sensorData.Put("Compass", compass)
+					'Log("Used Anemometer compass value raw: " & NumberFormat(compass, 3, 0))
 				End If
-				sensorData.Put("Compass", compass)
 			End If
 			
-			' process the raw sensor data and put results into 'sensorDataPrecessed'
+			' process the raw sensor data and put results into 'sensorDataPrcessed'
 			calcTools.Process_Sensor_Data
 			
 		End If
 		
-	Else If ServiceId.StartsWith( "0000180a" ) Then
+	Else If serviceID.StartsWith( "0000180a" ) Then
 		' Factory Device Information
 		bc.LittleEndian = True
 		deviceInfo.Initialize

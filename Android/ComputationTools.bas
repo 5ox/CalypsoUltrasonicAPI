@@ -20,7 +20,7 @@ Public Sub Initialize
 	alpha = Starter.prefSmoothing
 	Dim i As Int
 	
-	Log("Initialize: alpha = "&alpha&"  smoothing: "&Starter.prefSmoothing)
+	'Log("Initialize: alpha = "&alpha&"  smoothing: "&Starter.prefSmoothing)
 	noFilter.Initialize
 	For i=0 To (Starter.dataFields.Size-1)
 		key = Starter.dataFields.Get(i)
@@ -179,6 +179,28 @@ Sub updateEstimate(mea As Float, k As tKalman) As Float
 	k.last_estimate=k.current_estimate
 
 	Return k.current_estimate
+End Sub
+
+
+Sub TrueToMagneticNorth(trueNorth As Float) As Float
+	Dim declination As Float
+	If (Starter.sensorData.Get("DECL") > 990) Then
+		declination = 0.0
+	Else
+		declination = Starter.sensorData.Get("DECL")
+	End If
+	Return ((trueNorth + declination + 360) Mod 360)
+End Sub
+
+
+Sub MagneticToTrueNorth(magneticNorth As Float) As Float
+	Dim declination As Float
+	If (Starter.sensorData.Get("DECL") > 990) Then
+		declination = 0.0
+	Else
+		declination = Starter.sensorData.Get("DECL")
+	End If
+	Return ((magneticNorth - declination + 360) Mod 360)
 End Sub
 
 Sub test
