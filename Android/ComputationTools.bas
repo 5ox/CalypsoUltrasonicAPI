@@ -43,20 +43,20 @@ Public Sub Initialize
 	
 	' Kalman filter parameters for circular data (kX, kY) and other (kS)
 	kX.err_measure = 0.01
-	kX.err_estimate =  0.05 'mea*refresh_hz
-	kX.q = 0.005*2/Starter.prefSampleRate
+	kX.err_estimate =  kX.err_measure*Starter.prefSampleRate   'measue*refresh_hz
+	kX.q = 0.01    ' larger values = less filtering
 	kX.last_estimate = 0.0 
 	
 	kY.err_measure = kX.err_measure
-	kY.err_estimate = 0.05 'mea*refresh_hz
+	kY.err_estimate = kX.err_estimate
 	kY.q = kX.q
 	kY.last_estimate = 0.0
 	
 	kS.err_measure = kX.err_measure
-	kS.err_estimate = 0.05 'mea*refresh_hz
+	kS.err_estimate = kX.err_estimate
 	kS.q = kX.q
 	kS.last_estimate = 0.0
-	
+
 End Sub
 
 
@@ -65,16 +65,19 @@ Public Sub Process_Sensor_Data
 	'Log("Battery in Smooth: " & (Starter.dataFields.IndexOf("Battery") <> - 1) )
 	'Log("Process_Sensor_Data(): alpha:           : " & alpha )
 	Dim value, sog, awa, awd, aws, twa, twd, tws As Float
-	Dim i As Int
+	Dim i, sign As Int
 	
 	If alpha < 1.0 Then
+		' apply the appropiate filters to the raw data and store results in the Map "sensorDataProcessed"
 		Apply_Filters
+		
 		' put all non-filtered raw values into the Map sensorDataProcessed
 		For i=0 To (noFilter.Size-1)
 			key = noFilter.Get(i)
 			Starter.sensorDataProcessed.Put(key, Starter.sensorData.Get(key))
 		Next
 	Else
+		' no filter applied. Just copy the raw data from to Map "sensorData" to the Map "sensorDataProcessed"
 		For i=0 To (Starter.dataFields.Size-1)
 			key = Starter.dataFields.Get(i)
 			Starter.sensorDataProcessed.Put(key, Starter.sensorData.Get(key))
@@ -86,11 +89,15 @@ Public Sub Process_Sensor_Data
 	value = (Starter.sensorData.Get("DIR")+Starter.sensorData.Get("Compass")) Mod 360.0
 	Starter.sensorData.Put("AWD", value)
 	
-	' fix AWA to be in the range of -180 to +180 degrees
+	' use the "DIR" apparent wind angle with range of 0-360 to compute the AWA with a range of -180 to +180 degrees
 	awa = Starter.sensorDataProcessed.Get("DIR")
-	If value > 180.0 Then
+	If awa > 180.0 Then
 		awa = awa - 360.0
+		sign = -1
+	Else
+		sign = 1
 	End If
+	'Log("ComputationTools(): Direction: " & NumberFormat(Starter.sensorDataProcessed.Get("DIR"), 1, 1) & "   AWA: " & NumberFormat(awa, 1, 1))
 	Starter.sensorDataProcessed.Put("AWA", awa)
 	
 	' compute TWA, TWD, and TWS
@@ -101,17 +108,11 @@ Public Sub Process_Sensor_Data
 		Starter.sensorDataProcessed.Put("TWA", awa)
 		Starter.sensorDataProcessed.Put("TWD", awd)
 		Starter.sensorDataProcessed.Put("TWS", aws)
-	Else
-		If awa < 0.0 Then
-			value = -1.0
-		Else
-			value = 1.0
-		End If
-		
+	Else		
 		tws = Sqrt(aws*aws + sog*sog - 2*aws*sog*CosD(awa))
 		Starter.sensorDataProcessed.Put("TWS", tws)
 		
-		twa = ACosD(aws*CosD(awa)-sog/tws) * value
+		twa = ACosD(aws*CosD(awa)-sog/tws) * sign
 		Starter.sensorDataProcessed.Put("TWA", twa)
 		
 		twd = (awd-(awa-twa)) Mod 360
@@ -135,14 +136,13 @@ Public Sub Apply_Filters
 	' apply the necessary filter to all data fields specified in 'Starter.dataFieldsFilter'
 	For i=0 To (Starter.dataFieldsFilter.Size-1)
 		key = Starter.dataFieldsFilter.Get(i)
-		If (key = "AWA") Then
-			' apply AWA Kalman Filter for circular data
-			Starter.sensorDataProcessed.Put(key, Starter.sensorData.Get(key))
+		If (key = "DIR") Then
+			' apply the Kalman Filter for circular data for the Wind Direction data
+			'Starter.sensorDataProcessed.Put(key, Starter.sensorData.Get(key))
 			value = Kalman_Filter_Circular(Starter.sensorData.Get(key))
 			Starter.sensorDataProcessed.Put(key, value)
 		Else If (key = "AWS") Then
 			' apply AWS Kalman Filter
-			Starter.sensorDataProcessed.Put(key, Starter.sensorData.Get(key))
 			value = updateEstimate( Starter.sensorData.Get(key), kS )
 			Starter.sensorDataProcessed.Put(key, value)
 		Else
@@ -196,10 +196,10 @@ Public Sub Kalman_Filter_Circular(raw As Float) As Float
 	
 End Sub
 
-Sub updateEstimate(mea As Float, k As tKalman) As Float
+Sub updateEstimate(measurement As Float, k As tKalman) As Float
   
 	k.kalman_gain = k.err_estimate/(k.err_estimate + k.err_measure)
-	k.current_estimate = k.last_estimate + k.kalman_gain * (mea - k.last_estimate)
+	k.current_estimate = k.last_estimate + k.kalman_gain * (measurement - k.last_estimate)
 	k.err_estimate =  (1.0 - k.kalman_gain)*k.err_estimate + Abs(k.last_estimate-k.current_estimate)*k.q
 	k.last_estimate=k.current_estimate
 

@@ -32,7 +32,6 @@ Library5=byteconverter
 Library6=javaobject
 Library7=runtimepermissions
 Library8=preferenceactivity
-Library9=reflection
 ManifestCode='This code will be applied to the manifest file during compilation.~\n~'You do not need to modify it in most cases.~\n~'See this link for for more information: https://www.b4x.com/forum/showthread.php?p=78136~\n~AddManifestText(~\n~<uses-sdk android:minSdkVersion="22" android:targetSdkVersion="27"/>~\n~<supports-screens android:largeScreens="true" ~\n~    android:normalScreens="true" ~\n~    android:smallScreens="true" ~\n~    android:anyDensity="true"/>)~\n~~\n~SetApplicationAttribute(android:icon, "@drawable/icon")~\n~SetApplicationAttribute(android:label, "$LABEL$")~\n~CreateResourceFromFile(Macro, Themes.DarkTheme)~\n~~\n~AddApplicationText(<activity android:name="anywheresoftware.b4a.objects.preferenceactivity"/>)~\n~~\n~' Permissions~\n~AddPermission(android.permission.ACCESS_NETWORK_STATE)~\n~AddPermission(android.permission.ACCESS_COARSE_LOCATION) 'no necesaria si no BluetoothAdmin~\n~AddPermission(android.permission.ACCESS_FINE_LOCATION)~\n~AddPermission(android.permission.BLUETOOTH)~\n~AddPermission(android.permission.BLUETOOTH_ADMIN)~\n~AddPermission(android.permission.WRITE_EXTERNAL_STORAGE)~\n~AddPermission(android.permission.RECEIVE_ULTRASONIC_API)~\n~~\n~'End of default text.~\n~
 Module1=Starter
 Module2=BackgroundService
@@ -40,7 +39,7 @@ Module3=actBLE
 Module4=ComputationTools
 Module5=actCalibration
 NumberOfFiles=11
-NumberOfLibraries=9
+NumberOfLibraries=8
 NumberOfModules=5
 Version=8.3
 @EndOfDesignText@
@@ -48,7 +47,8 @@ Version=8.3
 ' Main Activity (initial Activity launched upon program start)
 ' 
 ' API for the Calypso Ultrasonic Anemometer
-' Calibrate the on-board compass
+' Calibrate the on-board compass - not implemented yet due to compass problems
+
 ' Interface to 3rd party Apps using Broadcast Intents / Broadcast Receivers
 '
 ' Bearing data priotities: 1. GPS bearing
