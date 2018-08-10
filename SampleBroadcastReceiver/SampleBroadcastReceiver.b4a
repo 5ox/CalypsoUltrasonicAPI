@@ -100,7 +100,9 @@ End Sub
 Sub uiTimer_Tick
 	ctr = ctr + 1
 	lblTitle.Text = ctr & ". dataset"
-	ListView1.AddSingleLine( ctr & "-> AWD=" & BroadcastReceiverService.AWD & _
-		"  Temp=" & BroadcastReceiverService.Temp)
-	ListView1.SingleLineLayout.Label.TextSize = 14
+	ListView1.AddSingleLine( ctr & "-> AWA=" & BroadcastReceiverService.AWA & _
+		"  AWD=" & BroadcastReceiverService.AWD & _
+		"  AWS=" & BroadcastReceiverService.AWS & _
+	    "  Temp=" & BroadcastReceiverService.Temp)
+	ListView1.SingleLineLayout.Label.TextSize = 13
 End Sub

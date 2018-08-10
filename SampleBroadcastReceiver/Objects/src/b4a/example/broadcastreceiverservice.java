@@ -127,47 +127,79 @@ public class broadcastreceiverservice extends  android.app.Service{
 	}public anywheresoftware.b4a.keywords.Common __c = null;
 public static anywheresoftware.b4a.objects.IntentWrapper _broadcastintent = null;
 public static float _temp = 0f;
+public static float _awa = 0f;
 public static float _awd = 0f;
+public static float _aws = 0f;
 public static anywheresoftware.b4a.objects.collections.List _datafieldsapi = null;
 public static String _broadcastreceiverid = "";
 public b4a.example.main _main = null;
 public static String  _parseintentdata(anywheresoftware.b4a.objects.IntentWrapper _apiintent) throws Exception{
 String[] _value = null;
- //BA.debugLineNum = 62;BA.debugLine="Sub ParseIntentData(apiINTENT As Intent)";
- //BA.debugLineNum = 63;BA.debugLine="Dim value() As String";
+ //BA.debugLineNum = 64;BA.debugLine="Sub ParseIntentData(apiINTENT As Intent)";
+ //BA.debugLineNum = 65;BA.debugLine="Dim value() As String";
 _value = new String[(int) (0)];
 java.util.Arrays.fill(_value,"");
- //BA.debugLineNum = 64;BA.debugLine="If apiINTENT.HasExtra(\"Temp\") Then";
+ //BA.debugLineNum = 66;BA.debugLine="If apiINTENT.HasExtra(\"Temp\") Then";
 if (_apiintent.HasExtra("Temp")) { 
- //BA.debugLineNum = 65;BA.debugLine="value = apiINTENT.GetExtra(\"Temp\")";
+ //BA.debugLineNum = 67;BA.debugLine="value = apiINTENT.GetExtra(\"Temp\")";
 _value = (String[])(_apiintent.GetExtra("Temp"));
- //BA.debugLineNum = 66;BA.debugLine="Log(\"Temp value: \" & value(0))";
+ //BA.debugLineNum = 68;BA.debugLine="Log(\"Temp value: \" & value(0))";
 anywheresoftware.b4a.keywords.Common.Log("Temp value: "+_value[(int) (0)]);
- //BA.debugLineNum = 67;BA.debugLine="If (value.Length>0 And value(0).Length>0) Then";
+ //BA.debugLineNum = 69;BA.debugLine="If (value.Length>0 And value(0).Length>0) Then";
 if ((_value.length>0 && _value[(int) (0)].length()>0)) { 
- //BA.debugLineNum = 68;BA.debugLine="TEMP = value(0)";
+ //BA.debugLineNum = 70;BA.debugLine="TEMP = value(0)";
 _temp = (float)(Double.parseDouble(_value[(int) (0)]));
  }else {
- //BA.debugLineNum = 70;BA.debugLine="TEMP = 0.0";
+ //BA.debugLineNum = 72;BA.debugLine="TEMP = 0.0";
 _temp = (float) (0.0);
  };
  };
- //BA.debugLineNum = 73;BA.debugLine="If apiINTENT.HasExtra(\"AWD\") Then";
-if (_apiintent.HasExtra("AWD")) { 
- //BA.debugLineNum = 74;BA.debugLine="value = apiINTENT.GetExtra(\"AWD\")";
-_value = (String[])(_apiintent.GetExtra("AWD"));
- //BA.debugLineNum = 75;BA.debugLine="Log(\"AWD value: \" & value(0))";
-anywheresoftware.b4a.keywords.Common.Log("AWD value: "+_value[(int) (0)]);
- //BA.debugLineNum = 76;BA.debugLine="If (value.Length>0 And value(0).Length>0) Then";
+ //BA.debugLineNum = 75;BA.debugLine="If apiINTENT.HasExtra(\"AWA\") Then";
+if (_apiintent.HasExtra("AWA")) { 
+ //BA.debugLineNum = 76;BA.debugLine="value = apiINTENT.GetExtra(\"AWA\")";
+_value = (String[])(_apiintent.GetExtra("AWA"));
+ //BA.debugLineNum = 77;BA.debugLine="Log(\"AWA value: \" & value(0))";
+anywheresoftware.b4a.keywords.Common.Log("AWA value: "+_value[(int) (0)]);
+ //BA.debugLineNum = 78;BA.debugLine="If (value.Length>0 And value(0).Length>0) Then";
 if ((_value.length>0 && _value[(int) (0)].length()>0)) { 
- //BA.debugLineNum = 77;BA.debugLine="AWD = value(0)";
+ //BA.debugLineNum = 79;BA.debugLine="AWA = value(0)";
+_awa = (float)(Double.parseDouble(_value[(int) (0)]));
+ }else {
+ //BA.debugLineNum = 81;BA.debugLine="AWA = 0.0";
+_awa = (float) (0.0);
+ };
+ };
+ //BA.debugLineNum = 84;BA.debugLine="If apiINTENT.HasExtra(\"AWD\") Then";
+if (_apiintent.HasExtra("AWD")) { 
+ //BA.debugLineNum = 85;BA.debugLine="value = apiINTENT.GetExtra(\"AWD\")";
+_value = (String[])(_apiintent.GetExtra("AWD"));
+ //BA.debugLineNum = 86;BA.debugLine="Log(\"AWD value: \" & value(0))";
+anywheresoftware.b4a.keywords.Common.Log("AWD value: "+_value[(int) (0)]);
+ //BA.debugLineNum = 87;BA.debugLine="If (value.Length>0 And value(0).Length>0) Then";
+if ((_value.length>0 && _value[(int) (0)].length()>0)) { 
+ //BA.debugLineNum = 88;BA.debugLine="AWD = value(0)";
 _awd = (float)(Double.parseDouble(_value[(int) (0)]));
  }else {
- //BA.debugLineNum = 79;BA.debugLine="AWD = 0.0";
+ //BA.debugLineNum = 90;BA.debugLine="AWD = 0.0";
 _awd = (float) (0.0);
  };
  };
- //BA.debugLineNum = 83;BA.debugLine="End Sub";
+ //BA.debugLineNum = 93;BA.debugLine="If apiINTENT.HasExtra(\"AWS\") Then";
+if (_apiintent.HasExtra("AWS")) { 
+ //BA.debugLineNum = 94;BA.debugLine="value = apiINTENT.GetExtra(\"AWS\")";
+_value = (String[])(_apiintent.GetExtra("AWS"));
+ //BA.debugLineNum = 95;BA.debugLine="Log(\"AWS value: \" & value(0))";
+anywheresoftware.b4a.keywords.Common.Log("AWS value: "+_value[(int) (0)]);
+ //BA.debugLineNum = 96;BA.debugLine="If (value.Length>0 And value(0).Length>0) Then";
+if ((_value.length>0 && _value[(int) (0)].length()>0)) { 
+ //BA.debugLineNum = 97;BA.debugLine="AWS = value(0)";
+_aws = (float)(Double.parseDouble(_value[(int) (0)]));
+ }else {
+ //BA.debugLineNum = 99;BA.debugLine="AWS = 0.0";
+_aws = (float) (0.0);
+ };
+ };
+ //BA.debugLineNum = 103;BA.debugLine="End Sub";
 return "";
 }
 public static String  _process_globals() throws Exception{
@@ -176,27 +208,31 @@ public static String  _process_globals() throws Exception{
 _broadcastintent = new anywheresoftware.b4a.objects.IntentWrapper();
  //BA.debugLineNum = 32;BA.debugLine="Public TEMP As Float";
 _temp = 0f;
- //BA.debugLineNum = 33;BA.debugLine="Public AWD As Float";
+ //BA.debugLineNum = 33;BA.debugLine="Public AWA As Float";
+_awa = 0f;
+ //BA.debugLineNum = 34;BA.debugLine="Public AWD As Float";
 _awd = 0f;
- //BA.debugLineNum = 34;BA.debugLine="Public dataFieldsAPI As List";
+ //BA.debugLineNum = 35;BA.debugLine="Public AWS As Float";
+_aws = 0f;
+ //BA.debugLineNum = 36;BA.debugLine="Public dataFieldsAPI As List";
 _datafieldsapi = new anywheresoftware.b4a.objects.collections.List();
- //BA.debugLineNum = 35;BA.debugLine="Public broadcastReceiverID As String";
+ //BA.debugLineNum = 37;BA.debugLine="Public broadcastReceiverID As String";
 _broadcastreceiverid = "";
- //BA.debugLineNum = 36;BA.debugLine="End Sub";
+ //BA.debugLineNum = 38;BA.debugLine="End Sub";
 return "";
 }
 public static String  _service_create() throws Exception{
- //BA.debugLineNum = 38;BA.debugLine="Sub Service_Create";
- //BA.debugLineNum = 40;BA.debugLine="dataFieldsAPI.Initialize2(Array As String(\"Batter";
+ //BA.debugLineNum = 40;BA.debugLine="Sub Service_Create";
+ //BA.debugLineNum = 42;BA.debugLine="dataFieldsAPI.Initialize2(Array As String(\"Batter";
 _datafieldsapi.Initialize2(anywheresoftware.b4a.keywords.Common.ArrayToList(new String[]{"Battery","Temp","AWA","AWD","AWS","TWA","TWD","TWS","Pitch","Roll","COG","SOG"}));
- //BA.debugLineNum = 43;BA.debugLine="broadcastReceiverID = \"com.calypso.api.ACTION_DAT";
+ //BA.debugLineNum = 45;BA.debugLine="broadcastReceiverID = \"com.calypso.api.ACTION_DAT";
 _broadcastreceiverid = "com.calypso.api.ACTION_DATA_AVAILABLE";
- //BA.debugLineNum = 45;BA.debugLine="End Sub";
+ //BA.debugLineNum = 47;BA.debugLine="End Sub";
 return "";
 }
 public static String  _service_destroy() throws Exception{
- //BA.debugLineNum = 58;BA.debugLine="Sub Service_Destroy";
- //BA.debugLineNum = 60;BA.debugLine="End Sub";
+ //BA.debugLineNum = 60;BA.debugLine="Sub Service_Destroy";
+ //BA.debugLineNum = 62;BA.debugLine="End Sub";
 return "";
 }
 public static void  _service_start(anywheresoftware.b4a.objects.IntentWrapper _startingintent) throws Exception{
@@ -222,7 +258,7 @@ return;
 case 0:
 //C
 this.state = 1;
- //BA.debugLineNum = 50;BA.debugLine="If StartingIntent.Action = broadcastReceiverID Th";
+ //BA.debugLineNum = 52;BA.debugLine="If StartingIntent.Action = broadcastReceiverID Th";
 if (true) break;
 
 case 1:
@@ -235,7 +271,7 @@ this.state = 3;
 case 3:
 //C
 this.state = 4;
- //BA.debugLineNum = 51;BA.debugLine="ParseIntentData(StartingIntent)";
+ //BA.debugLineNum = 53;BA.debugLine="ParseIntentData(StartingIntent)";
 _parseintentdata(_startingintent);
  if (true) break;
 
@@ -243,7 +279,7 @@ case 4:
 //C
 this.state = -1;
 ;
- //BA.debugLineNum = 53;BA.debugLine="Sleep(50)";
+ //BA.debugLineNum = 55;BA.debugLine="Sleep(50)";
 anywheresoftware.b4a.keywords.Common.Sleep(processBA,this,(int) (50));
 this.state = 5;
 return;
@@ -251,9 +287,9 @@ case 5:
 //C
 this.state = -1;
 ;
- //BA.debugLineNum = 55;BA.debugLine="Service.StopAutomaticForeground 'Call this when t";
+ //BA.debugLineNum = 57;BA.debugLine="Service.StopAutomaticForeground 'Call this when t";
 parent.mostCurrent._service.StopAutomaticForeground();
- //BA.debugLineNum = 56;BA.debugLine="End Sub";
+ //BA.debugLineNum = 58;BA.debugLine="End Sub";
 if (true) break;
 
             }

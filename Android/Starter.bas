@@ -37,7 +37,9 @@ Sub Process_Globals
 	Public prefTrueNorth As Boolean		' True yields True North, False yields Magnetic North
 	Public prefBluetoothName As String	' Name of the last connected Bluetooth Device
 	Public prefBluetoothMAC As String	' Mac Address of the last connected Bluetooth Device
+	Public prefBluetoothUUID As String	' UUID Service ID of the last connected Bluetooth Device
 	Public prefPhoneCompass As Boolean	' when true we use the phone compass data when we don't have valid GPS heading data
+	Public prefOffsetAngle As Int		' Mounting offset from boat's bow-stern axis
 
 	' Phone services
 	Public phoneManager As Phone		' get us the Phone device class
@@ -54,6 +56,7 @@ Sub Process_Globals
 	Public bleDevices As Map
 	Public bleScanTimeout As Timer		' timeout timer for the Bluetooth device scan process
 	Public bleConnectTimeout As Timer	' timeout timer for the Bluetooth device connection process
+	Public uuid As List					' List holding the UUID for for a specific BLE device to scan for and connect to
 	
 	' Location Services
 	Public gpsManager As GPS			' get us the phone's Location Services (GPS) class
@@ -93,10 +96,9 @@ Sub Process_Globals
 	Public ctr_ble As Int				' BLE data set transfer counter for debugging only	
 	Public deviceInfo As Map
 	
-	Public offsetAngle As Int = 0		' calibration offset angle
-	
 	Public calcTools As ComputationTools ' class of various calculation tools & methods
 	Public speedToKnots As Float
+	Public minSpeed As Float			' minimum speed required to compute True wind data from the Apparent wind data
 	
 	Public calibrationReset As Boolean	' keep track if a reset has been done as part of the multi step calibration process
 	
@@ -110,6 +112,7 @@ Sub Service_Create
 	' All directional data is stored in true degrees
 	'
 	
+	bleSelect = True
 	runBackgroundTasks = True
 	broadcastFrequency = 1000   		' time between transmissions in milliseconds
 	
@@ -120,12 +123,12 @@ Sub Service_Create
 	bleManager.Initialize("BLE")		' initialize the Bluetooth device
 	
 	' initialize the Sensor data (GPS->Location and BLE->Anemometer) dictionaries and Data Fields
-	dataFields.Initialize2(Array As String("Battery", "Temp", "AWA", "AWD", "AWS", "TWA", "TWD", "TWS", _
+	dataFields.Initialize2(Array As String("Battery", "Temp", "DIR", "AWA", "AWD", "AWS", "TWA", "TWD", "TWS", _
 			"Pitch", "Roll", "Compass", "ALT", "LAT", "LON", "COG", "SOG", "DECL", "STATUS"))
-	dataFieldsFilter.Initialize2(Array As String("AWA", "AWS", "Pitch", "Roll", "Compass", "COG", "SOG"))
-	dataFieldsCircular.Initialize2(Array As String("AWA", "Compass", "COG"))
-	dataFieldsAPI.Initialize2(Array As String("Battery", "Temp", "AWA", "AWD", "AWS", "TWA", "TWD", "TWS", _
-			"Pitch", "Roll", "COG", "SOG"))
+	dataFieldsFilter.Initialize2(Array As String("DIR", "AWS", "Pitch", "Roll", "Compass", "COG", "SOG"))
+	dataFieldsCircular.Initialize2(Array As String("DIR", "Compass", "COG"))
+	dataFieldsAPI.Initialize2(Array As String("Battery", "Temp", "AWA", "AWD", "AWS", "TWA", _
+			"TWD", "TWS", "Pitch", "Roll", "COG", "SOG"))
 	sensorData.Initialize
 	sensorDataProcessed.Initialize
 	bleDevices.Initialize
@@ -151,6 +154,7 @@ Sub Service_Create
 
 	calcTools.Initialize
 	speedToKnots = 1.943844492		' m/s to knots conversion -> 1.943844492 kts per m/s
+	minSpeed = 0.1					' 0.1 m/s or 0.2 kts
 	localDeclination = 999.0		' default value that will force update with actual value from phone
 	compCalValues.Initialize
 	compCalNow = False
@@ -309,46 +313,68 @@ End Sub
 ' Bluetooth connection stuff
 '--------------------------------------------------------------------------------------------------
 Sub BLE_Scan
-	'bleManager.StopScan
-	bleSelect = True					' add to device list in real time, don't wait til scan is completed
 	bleDevices.Clear
 	bleManager.Disconnect
 	Sleep(100)
 	Log("Starter->BLE_Scan(): supported device: " & bleManager.State)
-	bleManager.Scan2( Null, False )     ' no UUID device list, don't allow duplicates
+	bleNotify = False
+	If bleSelect Then
+		' add to device list in real time, don't wait til scan is completed
+		bleManager.Scan2( Null, False )     ' no UUID device list, don't allow duplicates
+		Log("Starter->BLE_Scan(): Scan2 launched")
+	Else
+		' just scan for a know device to speed up the connection process
+		Log("Starter->BLE_Scan(): scanning for " & uuid.Get(0))
+		bleManager.Scan(uuid)
+	End If
 	bleScanTimeout.Initialize("bleScanTimeout", timeout)
 	bleScanTimeout.Enabled = True
-	Log("Starter->BLE_Scan(): Scan2 launched")
 End Sub
 
 
 Sub BLE_DeviceFound (name As String, MacAddress As String, AdvertisingData As Map, RSSI As Double)
-	Log( "Starter->BLE_DeviceFoundDetected(): name: " & name & " " & MacAddress & " RSSI: "& RSSI )
+	Log( "Starter->BLE_DeviceFound(): name: " & name & " " & MacAddress & " RSSI: "& RSSI )
 	Dim device As tUltra
 	device.Name = name
 	device.MacAddress = MacAddress
 	device.RSSI = RSSI
 	bleDevices.Put( MacAddress, device )
-	If bleSelect = True Then CallSubDelayed( actBLE, "addToListRT") 'add to list in real time
+	If bleSelect Then 
+		CallSubDelayed( actBLE, "addToListRT") 'add to list in real time
+	Else
+		ConnectBle(device)
+	End If
 End Sub
 
+
 Sub ConnectBle( ultra As tUltra )
-	bleManager.StopScan
-	bleScanTimeout.Enabled = False
+	If bleScanTimeout.Enabled Then
+		bleManager.StopScan
+		bleScanTimeout.Enabled = False
+		CallSubDelayed(Main, "Connecting_Bluetooth")				' update the UI to the current action
+	End If
 
 	connectedDevice = ultra
-	CallSubDelayed(Main, "Connecting_Bluetooth")				' update the UI to the current action
 	Log("Starter->ConnectBLE(): starting connection process for Mac: "&ultra.MacAddress)
 	bleConnectTimeout.Initialize("bleConnectTimeout", timeout)
 	bleConnectTimeout.Enabled = True
 	bleManager.Connect2(ultra.MacAddress, False)
+
+	If ultra.Name.StartsWith("CUPS") Then
+		deviceType = 1
+	else if ultra.Name.StartsWith("ULTRA") Then
+		deviceType = 2
+	else if ultra.Name.StartsWith("NMEA") Then
+		deviceType = 3
+	End If
+
 End Sub
+
 
 Sub BLE_Connected (Services As List)
 	bleConnectTimeout.Enabled = False
 	bleNotify = False
 	bleConnected = True
-	Log("Starter->BLE_Connect(): known device " & (prefBluetoothMAC = connectedDevice.MacAddress))
 	If (prefBluetoothMAC = connectedDevice.MacAddress) Then
 		' for KOWN device, use the name from the User Preference setting
 		bleStateText = "BLE '" & prefBluetoothName & "' Connected."
@@ -359,6 +385,7 @@ Sub BLE_Connected (Services As List)
 		prefBluetoothName = connectedDevice.Name
 		prefBluetoothMAC = connectedDevice.MacAddress
 		prefManager.SetString("bleMAC", connectedDevice.MacAddress)
+		Log("Starter->BLE_Connect(): to unknown device " & connectedDevice.Name)
 	End If
 	cNormal = ""
 	cRate = ""
@@ -427,10 +454,12 @@ Sub BLE_DataAvailable (ServiceId As String, Characteristics As Map)
 	Dim sr As Short
 	'Dim millis As Long = DateTime.Now
 	
-	If serviceID.StartsWith( "0000180d" ) Then
+	If ServiceId.StartsWith( "0000180d" ) Then
 		' Sensor Data available under this ServiceID
-		anemometerServiceID = serviceID
 		If Not( bleNotify ) Then
+			anemometerServiceID = ServiceId
+			prefBluetoothUUID = anemometerServiceID
+			prefManager.SetString("bleUUID", anemometerServiceID)
 			For Each id As String In Characteristics.Keys
 								
 				' Device Status (00-sleep mode, 01-Low Power, 02-Normal Mode)
@@ -503,14 +532,14 @@ Sub BLE_DataAvailable (ServiceId As String, Characteristics As Map)
 			Dim bVars(4) As Byte	' each one of the 4 array elements is 1 byte
 			Dim cVars(2) As Byte	' each one of the 2 array elements is 1 byte
 			Dim sVars() As Short	' each array element has 2 bytes
-			Dim aws, awa, compass As Float
+			Dim aws, direction, compass As Float
 
 			bc.LittleEndian = True	' The least significant byte (LSB) value is at the lowest address
 			' java.lang.RuntimeException: java.lang.NumberFormatException: For input string: "00000000F02B0020F42B0020482C00209C2C"
 			
 			' Data structure and bytes utilized
 			' 0-1: aws
-			' 2-3: awa
+			' 2-3: dir					' wind direction 0-360 degrees relative to sensor mark
 			' 4:   Battery
 			' 5:   Temp
 			' 6:   Roll					' only available for deviceType 2=Ultrasonic
@@ -520,12 +549,12 @@ Sub BLE_DataAvailable (ServiceId As String, Characteristics As Map)
 			sVars = bc.ShortsFromBytes( bVars )
 
 			aws = sVars(0)
-			If aws > 0.1 Then			' apparent wind speeds > 0.1m/s or 0.2kts assumed to be
-				awa = sVars(1)			' valid data.  If we don't have valid wind speed, it will
+			If aws > minSpeed Then		' apparent wind speeds > minSpeed (0.1m/s or 0.2kts) assumed to be
+				direction = sVars(1)	' valid data.  If we don't have valid wind speed, it will
 			Else						' be rounded to zero and direction is set to zero too.
-				awa = 0	
+				direction = 0
 			End If
-			sensorData.Put("AWA", awa)
+			sensorData.Put("DIR", direction)
 			sensorData.Put("AWS", aws/100.0)
 
 			If deviceType = 2 Then  ' only available for Ultrasonic Sensor, deviceType=2
@@ -537,7 +566,7 @@ Sub BLE_DataAvailable (ServiceId As String, Characteristics As Map)
 				sensorData.Put("Pitch", ToUnsigned(bVars(3)) - 90)
 				bc.ArrayCopy(Characteristics.Get(cNormal), 8, cVars, 0, 2 ) ' copy 2 bytes with offset 8 into 2 bytes
 				sVars = bc.ShortsFromBytes( cVars )
-				compass = (360.0-sVars(0) + offsetAngle) Mod 360
+				compass = (360.0-sVars(0) + prefOffsetAngle) Mod 360
 				'Log("COMPASS: 1-0 = " & ToUnsigned(cVars(1)) & " : " & ToUnsigned(cVars(0)) & "   sVars= " & sVars(0) & "  comp=" & compass)
 
 				' save raw compass readings into List 'compCalValues'
@@ -566,7 +595,7 @@ Sub BLE_DataAvailable (ServiceId As String, Characteristics As Map)
 			
 		End If
 		
-	Else If serviceID.StartsWith( "0000180a" ) Then
+	Else If ServiceId.StartsWith( "0000180a" ) Then
 		' Factory Device Information
 		bc.LittleEndian = True
 		deviceInfo.Initialize

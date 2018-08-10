@@ -1,7 +1,8 @@
 ﻿Build1=Light,com.calypsoinstruments.CalypsoUltrasonicAPI,Light,NoAds
 Build2=New_1,com.calypsoinstruments.CalysoUltrasonicAPI
 File1=actBleActivity.bal
-File10=ultra.jpg
+File10=textura_fibra_carbono.jpg
+File11=ultra.jpg
 File2=actcalcomp.bal
 File3=api_icon.png
 File4=bt.png
@@ -9,9 +10,10 @@ File5=calibration_ultrasonic.png
 File6=calypso_drawer.jpg
 File7=connection.png
 File8=MainActivity.bal
-File9=textura_fibra_carbono.jpg
+File9=menu_bar.png
 FileGroup1=Default Group
 FileGroup10=Default Group
+FileGroup11=Default Group
 FileGroup2=Default Group
 FileGroup3=Default Group
 FileGroup4=Default Group
@@ -30,14 +32,15 @@ Library5=byteconverter
 Library6=javaobject
 Library7=runtimepermissions
 Library8=preferenceactivity
+Library9=reflection
 ManifestCode='This code will be applied to the manifest file during compilation.~\n~'You do not need to modify it in most cases.~\n~'See this link for for more information: https://www.b4x.com/forum/showthread.php?p=78136~\n~AddManifestText(~\n~<uses-sdk android:minSdkVersion="22" android:targetSdkVersion="27"/>~\n~<supports-screens android:largeScreens="true" ~\n~    android:normalScreens="true" ~\n~    android:smallScreens="true" ~\n~    android:anyDensity="true"/>)~\n~~\n~SetApplicationAttribute(android:icon, "@drawable/icon")~\n~SetApplicationAttribute(android:label, "$LABEL$")~\n~CreateResourceFromFile(Macro, Themes.DarkTheme)~\n~~\n~AddApplicationText(<activity android:name="anywheresoftware.b4a.objects.preferenceactivity"/>)~\n~~\n~' Permissions~\n~AddPermission(android.permission.ACCESS_NETWORK_STATE)~\n~AddPermission(android.permission.ACCESS_COARSE_LOCATION) 'no necesaria si no BluetoothAdmin~\n~AddPermission(android.permission.ACCESS_FINE_LOCATION)~\n~AddPermission(android.permission.BLUETOOTH)~\n~AddPermission(android.permission.BLUETOOTH_ADMIN)~\n~AddPermission(android.permission.WRITE_EXTERNAL_STORAGE)~\n~AddPermission(android.permission.RECEIVE_ULTRASONIC_API)~\n~~\n~'End of default text.~\n~
 Module1=Starter
 Module2=BackgroundService
 Module3=actBLE
 Module4=ComputationTools
 Module5=actCalibration
-NumberOfFiles=10
-NumberOfLibraries=8
+NumberOfFiles=11
+NumberOfLibraries=9
 NumberOfModules=5
 Version=8.3
 @EndOfDesignText@
@@ -57,8 +60,11 @@ Version=8.3
 ' This App interprets all speed data in m/s and all directional data as True North. The broadcast directional
 ' data can be True North or Magnetic North based on User Preference settings.  Speed data broadcast in m/s. 
 '
-' Implementation of 'Init_Phone_Compass' in Starter yields identical results to the algorithm described by Erel at
+' The implementation of 'Starter->Init_Phone_Compass' yields identical results to the algorithm described by Erel at
 ' https://www.b4x.com/android/forum/threads/orientation-and-accelerometer.6647/page-6.  As this is easier, we use this method
+'
+'
+' Github: https://github.com/volkerpetersen/CalypsoUltrasonicAPI.git
 '
 ' Developed by Volker Petersen (volker.petersen01@gmail.com)
 ' July 2018
@@ -66,10 +72,10 @@ Version=8.3
 '
 ' TODO implement calibration with Excel test to confirm
 ' TODO calibration as 2 step process. Step 1: calibrate compass, Step 2: calibrate device mount by
-'      taking the difference between boat compass and device compass. That become the 'offsetAngle'.
+'      taking the difference between boat compass and device compass. That become the 'prefOffsetAngle'.
 '      make a reset activity and a calibration activity
-'
-' TODO implement RichString library to get Superscript letters 
+'	   Calibration process is implemented, but the resulting data is not usable.  It only yields
+'      a range of directions between 90 and 160 vs the expected 0-360.  Seems to be a harware issue.
 '
 ' to set App icon, select a file from /Files folder in Project->Choose Icon - file can have any name. 
 ' In Manifest add line 'SetApplicationAttribute(android:icon, "@drawable/icon")'.  This IDE will copy
@@ -103,6 +109,7 @@ Sub Process_Globals
 
 End Sub
 
+
 Sub Globals
 	'These global variables will be redeclared each time the activity is created.
 	'These variables can only be accessed from this module.
@@ -119,6 +126,7 @@ Sub Globals
 	Private lblLOCATION As Label
 	Private lblBROADCASTS As Label
 End Sub
+
 
 Sub Activity_Create(FirstTime As Boolean)
 	'Do not forget to load the layout file created with the visual designer. For example:
@@ -138,10 +146,10 @@ Sub Activity_Create(FirstTime As Boolean)
 		Starter.javaInline.InitializeContext
 	End If
 			
-	btnCONNECT.Tag = "Scan"
-	btnCONNECT.Text = "Scan for BLE"
 	lblBROADCASTS.Text = " "
+	Activity.Title = "Calypso Ultrasonic API" & Chr(8482)
 End Sub
+
 
 Sub Activity_Resume	
 	Get_Current_Preference_Settings(False)			' fetch the lastest User Preference settings
@@ -170,12 +178,22 @@ Sub Activity_Resume
 	End If
 	lblConnectionStatus.Text = Starter.bleStateText
 	
-	If Starter.bleConnected Then
-		btnCONNECT.Text = "Stop BLE"
-		btnCONNECT.Tag = "Stop"
+	If Starter.bleConnected And Starter.bleNotify Then
+		btnCONNECT_State("Stop")
 	Else
-		btnCONNECT.Text = "Scan for BLE"
-		btnCONNECT.Tag = "Scan"
+		If Starter.prefBluetoothMAC = Starter.invalidMAC Then
+			btnCONNECT_State("Scan")
+			Starter.bleStateText = "Scan for available Bluetooth Devices"
+		Else
+			btnCONNECT_State("Connect")
+			Starter.bleStateText = "Connect to " & Starter.prefBluetoothName
+			lblConnectionStatus.Text = Starter.bleStateText
+			
+			' automatically connect to a known Anemometer
+			'Dim r As Reflector			' requires the Reflection Library
+			'r.Target = btnCONNECT
+			'r.RunMethod("performClick")
+		End If
 	End If
 			
 	' now start our Background Service (this function ensures that we always get restart the Service at any time)
@@ -226,7 +244,7 @@ Sub Launch_Background_Services
 	If Starter.bleConnected Then
 		Starter.runBackgroundTasks = True	' the background services runs until this Boolean is False
 		StartService(BackgroundService)		' start Background Service for this App
-		btnCONNECT.Text = "BLE Stop"
+		btnCONNECT_State("Stop")
 		'Log("Main->Launch_Background_Services(): Background Services with Bluetooth status: " & Starter.bleManager.State)
 	End If	
 	'Log("Main->Launch_Background_Services(): pref Mac: "&Starter.prefBluetoothMAC)
@@ -301,14 +319,34 @@ Sub uiUpdate_Tick
 End Sub
 
 
-' Layout Button click even
+' Layout Button 'btnCONNECT' click even
 Sub btnCONNECT_Click
+	' we have four BLE Connection stages: 
+	'	1) Connect a known Anemometer (stored in UserPreferences after last connection)
+	'	2) Scan for any available BLE Device (specifically the Ultrasonic Anemometer)
+	'	3) Stop an existing BLE connection
+	'	4) Stop a current Scan process
+	
 	Log("Main->btnCONNECT_Click(): " & btnCONNECT.Tag)
 
 	If btnCONNECT.Tag = "Scan" Then
-		btnCONNECT.Text = "Scanning...."
+		btnCONNECT_State("StopScan")
+		Starter.bleSelect = True				' allows for listing of discovered devices
 		CallSubDelayed(Starter, "BLE_Scan")
-	Else
+	
+	Else If btnCONNECT.Tag = "Connect" Then
+		Starter.uuid.Initialize
+		Starter.uuid.Add(Starter.prefBluetoothUUID)
+		Starter.bleSelect = False				' will only scan and connect to our known device with above UUID
+		CallSubDelayed(Starter, "BLE_Scan")
+	
+	Else If btnCONNECT.Tag = "StopScan" Then
+		btnCONNECT_State("Scan")
+		Starter.bleSelect = False
+		Starter.bleScanTimeout.Enabled = False
+		Starter.bleManager.StopScan
+	
+	Else If btnCONNECT.Tag = "Stop" Then		
 		Dim question As String = "Do you really want to shutdown the datafeed from the Anemometer?"
 		Dim title As String = "Disconnect Bluetooth?"
 	
@@ -316,32 +354,55 @@ Sub btnCONNECT_Click
 			Starter.bleManager.Disconnect
 			Starter.bleConnected = False
 			Disconnect_Bluetooth
-			btnCONNECT.Text = "Scan for BLE"
 			' Stop our Background Service
 			Starter.runBackgroundTasks = False	' stop the background services
 		End If
+	Else
+		Log("Main->btnCONNECT_Click(): Invalid option =" & btnCONNECT.Tag)
+	End If
+End Sub
+
+Sub btnCONNECT_State(state As String)
+	If state = "Scan" Then
+		btnCONNECT.Text = "Scan for BLE"
+		btnCONNECT.Tag = "Scan"
+	End If
+	If state = "Connect" Then
+		btnCONNECT.Text = "Connect BLE"
+		btnCONNECT.Tag = "Connect"
+	End If
+	If state = "StopScan" Then
+		btnCONNECT.Text = "Stop Scan"
+		btnCONNECT.Tag = "StopScan"
+	End If
+	If state = "Stop" Then
+		btnCONNECT.Text = "Stop BLE"
+		btnCONNECT.Tag = "Stop"
 	End If
 	btnCONNECT.Invalidate
 End Sub
 
 
 Sub Connecting_Bluetooth
-	btnCONNECT.Enabled = True
-	Starter.bleStateText = "Connecting to " & Starter.connectedDevice.MacAddress
+	If Starter.prefBluetoothMAC = Starter.invalidMAC Then
+		Starter.bleStateText = "Connecting to " & Starter.connectedDevice.Name
+	Else
+		Starter.bleStateText = "Connecting to " & Starter.prefBluetoothName		
+	End If
 	lblConnectionStatus.Text = Starter.bleStateText
-	btnCONNECT.Invalidate
-	btnCONNECT.Text = "Connecting..."
-	btnCONNECT.Tag = "Stop"
+	btnCONNECT_State("Stop")
 End Sub
 
 
 Sub Disconnect_Bluetooth
-	btnCONNECT.Enabled = True
-	Starter.bleStateText = "Disconnected"
+	If Starter.prefBluetoothMAC = Starter.invalidMAC Then
+		btnCONNECT_State("Scan")
+		Starter.bleStateText = "Scanning for BLE Devices"
+	Else
+		btnCONNECT_State("Connect")
+		Starter.bleStateText = "Connecting to " & Starter.prefBluetoothName
+	End If
 	lblConnectionStatus.Text = Starter.bleStateText
-	btnCONNECT.Invalidate
-	btnCONNECT.Text = "Scan & Connect BLE"
-	btnCONNECT.Tag = "Scan"
 End Sub
 
 
@@ -412,6 +473,8 @@ Sub Bluetooth_Click
 	' force a full Bluetooth connection process (Power on, Scan, Connect)
 	Log("Main->Bluetooth_Click(): " & btnCONNECT.Tag)
 	Bluetooth_Services_Start
+	Starter.bleSelect = True		' force a full scan for all devices that can be discovered
+	If Starter.bleEnabled Then CallSubDelayed(Starter, "BLE_Scan")
 End Sub
 
 
@@ -452,7 +515,8 @@ Sub Reset_Click
 			bc.LittleEndian = True
 			Starter.bleManager.WriteData(Starter.anemometerServiceID, Starter.cReset, bc.HexToBytes( "01" ))
 			Starter.bleConnected = False
-			btnCONNECT.Text = "Scan"
+			btnCONNECT_State("Connect")
+			Starter.calibrationReset = True
 		End If
 	End If
 End Sub
@@ -463,10 +527,11 @@ Sub About_Click
 	Dim feedback As Int
 	Dim i As Intent
 	str = "This API app establishes a Bluetooth connection to the Calypso Ultrasonic Anemometer"
-	str = str & " and broadcasts a data stream via Intents to other Apps. 3rd party App should utilize"
-	str = str & " Broadcast Receivers to receive the data stream. "
-	str = str & "Please click 'Help' to get more information from the App's webpage."
-	feedback = Msgbox2(str, "About the App", "Help", "", "OK", Starter.appIcon)
+	str = str & " and broadcasts a data stream to other Apps. " & CRLF & "3rd party Apps"
+	str = str & " should utilize Broadcast Receivers to receive the data stream."
+	str = str & " Please click 'Help' to get more information from the App's webpage."
+	str = str & CRLF & "Design & Implementation by Kaiserware" & Chr(8482) & "."
+	feedback = Msgbox2(str, "About this App", "Help", "", "OK", Starter.appIcon)
 	
 	If feedback = DialogResponse.POSITIVE Then
 		i.Initialize(i.ACTION_VIEW, "https://calypsoinstruments.com/")
@@ -506,13 +571,14 @@ Sub Create_User_Preference_Screen
 	cat1.AddList("SmoothingFactor", "Data Smoothing", "Select the data smoothing factor.", _
 	"75%", Array As String("No Smoothing", "25%", "50%", "75%", "Max Smoothing"))
 
-	cat2.Initialize("Other")
-	cat2.AddEditText("bleName", "Anemometer Name", "You can rename your Anemometer and save it for furture connections.", Starter.defaultSensorName)
-	cat2.AddCheckBox("ErrReporting", "Error Reporting", "Allow App to send Crash reports (on/off).", False)
+	'cat2.Initialize("Other")
+	cat1.AddEditText("OffsetAngle", "Mounting Offset Angle", "Offset angle to correct Anemometer alignment error with the bow-stern axis of the boat (0-180 degrees: + clockwise / - counter-clockwise)", "0")
+	cat1.AddEditText("bleName", "Anemometer Name", "You can rename your Anemometer and save it for furture connections.", Starter.defaultSensorName)
+	cat1.AddCheckBox("ErrReporting", "Error Reporting", "Allow App to send Crash reports (on/off).", False)
 		
 	'add the categories to the main prefScreen
 	Starter.prefScreen.AddPreferenceCategory(cat1)
-	Starter.prefScreen.AddPreferenceCategory(cat2)
+	'Starter.prefScreen.AddPreferenceCategory(cat2)
 	
 	' initialize the preference values with the Defaults if they have not been initialized
 	If Starter.prefManager.GetAll.Size = 0 Then Set_Default_User_Preferences
@@ -525,8 +591,10 @@ Sub Set_Default_User_Preferences
 	Starter.prefManager.SetString("SmoothingFactor", "75%")
 	Starter.prefManager.SetBoolean("ErrReporting", False)
 	Starter.prefManager.SetBoolean("TrueNorth", True)
+	Starter.prefManager.SetString("OffsetAngle", "0")
 	Starter.prefManager.SetString("bleName", Starter.defaultSensorName)
 	Starter.prefManager.SetString("bleMAC", Starter.invalidMAC)
+	Starter.prefManager.SetString("bleUUID", "")
 	Starter.prefManager.SetBoolean("PhoneCompass", False)
 End Sub
 
@@ -557,15 +625,25 @@ Sub Get_Current_Preference_Settings(verbose As Boolean)
 			Starter.prefSmoothing = 0.25
 	End Select
 	Starter.prefErrReporting = Starter.prefManager.GetBoolean("ErrReporting")
+	Starter.prefErrReporting = Starter.prefManager.GetBoolean("ErrReporting")
 	Starter.prefTrueNorth = Starter.prefManager.GetBoolean("TrueNorth")
 	Starter.prefPhoneCompass = Starter.prefManager.GetBoolean("PhoneCompass")
-	
+	Try
+		Starter.prefOffsetAngle = Starter.prefManager.GetString("OffsetAngle")
+		If Abs(Starter.prefOffsetAngle) > 180 Then
+			Confirm_Dialog("The Offset Angle must be between -180 and +180 degrees. Please go back and fix your Preference Offset Angle value.", "Wrong Offset Angle", "OK", "")
+			Starter.prefOffsetAngle = 0
+		End If
+	Catch
+		Starter.prefOffsetAngle = 0
+	End Try
 	If (Starter.prefManager.GetString("bleMAC") = Starter.invalidMAC) Then
 		Starter.prefBluetoothName = Starter.defaultSensorName
 		Starter.prefBluetoothMAC = Starter.invalidMAC
 	Else
 		Starter.prefBluetoothName = Starter.prefManager.GetString("bleName")
 		Starter.prefBluetoothMAC = Starter.prefManager.GetString("bleMAC").Replace("-", "")
+		Starter.prefBluetoothUUID = Starter.prefManager.GetString("bleUUID")
 	End If
 	
 	Starter.calcTools.Initialize
@@ -578,13 +656,15 @@ Sub Get_Current_Preference_Settings(verbose As Boolean)
 	End If
 	
 	If verbose Then
-		Log("Main->Get_Current_Preference_Settings(): Sample Rate:   "&Starter.prefSampleRate)
-		Log("Main->Get_Current_Preference_Settings(): Smoothing Fac: "&Starter.prefSmoothing)
-		Log("Main->Get_Current_Preference_Settings(): Err Report :   "&Starter.prefErrReporting)
-		Log("Main->Get_Current_Preference_Settings(): True North:    "&Starter.prefTrueNorth)
-		Log("Main->Get_Current_Preference_Settings(): Phone Compass: "&Starter.prefPhoneCompass)
-		Log("Main->Get_Current_Preference_Settings(): Mac Name:      "&Starter.prefBluetoothName)
-		Log("Main->Get_Current_Preference_Settings(): Mac Add:       "&Starter.prefBluetoothMAC)
+		Log("Main->Get_Current_Preference_Settings(): Sample Rate:    "&Starter.prefSampleRate)
+		Log("Main->Get_Current_Preference_Settings(): Smoothing Fac:  "&Starter.prefSmoothing)
+		Log("Main->Get_Current_Preference_Settings(): Err Report :    "&Starter.prefErrReporting)
+		Log("Main->Get_Current_Preference_Settings(): True North:     "&Starter.prefTrueNorth)
+		Log("Main->Get_Current_Preference_Settings(): Offset Angle:   "&Starter.prefOffsetAngle)
+		Log("Main->Get_Current_Preference_Settings(): Phone Compass:  "&Starter.prefPhoneCompass)
+		Log("Main->Get_Current_Preference_Settings(): Mac Name:       "&Starter.prefBluetoothName)
+		Log("Main->Get_Current_Preference_Settings(): Mac Address:    "&Starter.prefBluetoothMAC)
+		Log("Main->Get_Current_Preference_Settings(): UUID ServiceID: "&Starter.prefBluetoothUUID)
 	End If
 End Sub
 

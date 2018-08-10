@@ -17,7 +17,6 @@ Version=7.3
 #End Region
 
 '#Extends: android.support.v7.app.ActionBarActivity
-'#Extends: android.support.v7.app.AppCompatActivity
 
 Sub Process_Globals
 	'These global variables will be declared once when the application starts.
@@ -40,7 +39,6 @@ Sub Activity_Create(FirstTime As Boolean)
 	Activity.LoadLayout("actBleActivity")
 	
 	lDevices.Initialize
-		
 End Sub
 
 
@@ -55,8 +53,7 @@ Sub Activity_End( mac As String )
 End Sub
 
 Sub Activity_Pause (UserClosed As Boolean)
-	'Starter.bleSelect = False 
-	'CallSubDelayed( Main, "Disconnect_Bluetooth")
+	
 End Sub
 
 
@@ -105,14 +102,6 @@ Sub clv_ItemClick (Position As Int, ultra As tUltra)
 		Activity.Finish
 	Else
 		clv.Enabled = False				' stop user from selecting another device to connect to
-
-		If ultra.Name.StartsWith("CUPS") Then
-			Starter.deviceType = 1
-		else if ultra.Name.StartsWith("ULTRA") Then
-			Starter.deviceType = 2
-		else if ultra.Name.StartsWith("NMEA") Then
-			Starter.deviceType = 3
-		End If
 
 		CallSubDelayed2( Starter, "ConnectBle", ultra )
 		Log("actBLE->clv_ItemClick(): Terminating after Starter-ConnectBle() call for device type " & Starter.deviceType)

@@ -64,7 +64,7 @@ Sub Send_Broadcast_Intents
 	API.Initialize("com.calypso.api.ACTION_DATA_AVAILABLE", "")
 	For i=0 To Starter.dataFieldsAPI.Size-1
 		str = Round2( Starter.sensorDataProcessed.Get(Starter.dataFieldsAPI.Get(i)), 3)
-		API.PutExtra(Starter.dataFieldsAPI.Get(i), Array As String(str) )
+		API.PutExtra(Starter.dataFieldsAPI.Get(i), str )
 	Next
 	Starter.phoneManager.SendBroadcastIntent(API)
 

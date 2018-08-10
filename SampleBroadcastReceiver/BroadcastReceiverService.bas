@@ -36,7 +36,9 @@ Sub Process_Globals
 	'These variables can be accessed from all modules.
 	Public broadcastIntent As Intent
 	Public TEMP As Float
+	Public AWA As Float
 	Public AWD As Float
+	Public AWS As Float
 	Public dataFieldsAPI As List
 	Public broadcastReceiverID As String
 End Sub
@@ -76,6 +78,15 @@ Sub ParseIntentData(apiINTENT As Intent)
 			TEMP = 0.0
 		End If
 	End If
+	If apiINTENT.HasExtra("AWA") Then
+		value = apiINTENT.GetExtra("AWA")
+		Log("AWA value: " & value(0))
+		If (value.Length>0 And value(0).Length>0) Then
+			AWA = value(0)
+		Else
+			AWA = 0.0
+		End If
+	End If
 	If apiINTENT.HasExtra("AWD") Then
 		value = apiINTENT.GetExtra("AWD")
 		Log("AWD value: " & value(0))
@@ -83,6 +94,15 @@ Sub ParseIntentData(apiINTENT As Intent)
 			AWD = value(0)
 		Else
 			AWD = 0.0
+		End If
+	End If
+	If apiINTENT.HasExtra("AWS") Then
+		value = apiINTENT.GetExtra("AWS")
+		Log("AWS value: " & value(0))
+		If (value.Length>0 And value(0).Length>0) Then
+			AWS = value(0)
+		Else
+			AWS = 0.0
 		End If
 	End If
 

@@ -419,11 +419,11 @@ public static String  _uitimer_tick() throws Exception{
 _ctr = (int) (_ctr+1);
  //BA.debugLineNum = 89;BA.debugLine="lblTitle.Text = ctr & \". dataset\"";
 mostCurrent._lbltitle.setText(BA.ObjectToCharSequence(BA.NumberToString(_ctr)+". dataset"));
- //BA.debugLineNum = 90;BA.debugLine="ListView1.AddSingleLine( ctr & \"-> AWD=\" & Broadc";
-mostCurrent._listview1.AddSingleLine(BA.ObjectToCharSequence(BA.NumberToString(_ctr)+"-> AWD="+BA.NumberToString(mostCurrent._broadcastreceiverservice._awd)+"  Temp="+BA.NumberToString(mostCurrent._broadcastreceiverservice._temp)));
- //BA.debugLineNum = 92;BA.debugLine="ListView1.SingleLineLayout.Label.TextSize = 14";
-mostCurrent._listview1.getSingleLineLayout().Label.setTextSize((float) (14));
- //BA.debugLineNum = 93;BA.debugLine="End Sub";
+ //BA.debugLineNum = 90;BA.debugLine="ListView1.AddSingleLine( ctr & \"-> AWA=\" & Broadc";
+mostCurrent._listview1.AddSingleLine(BA.ObjectToCharSequence(BA.NumberToString(_ctr)+"-> AWA="+BA.NumberToString(mostCurrent._broadcastreceiverservice._awa)+"  AWD="+BA.NumberToString(mostCurrent._broadcastreceiverservice._awd)+"  AWS="+BA.NumberToString(mostCurrent._broadcastreceiverservice._aws)+"  Temp="+BA.NumberToString(mostCurrent._broadcastreceiverservice._temp)));
+ //BA.debugLineNum = 94;BA.debugLine="ListView1.SingleLineLayout.Label.TextSize = 12";
+mostCurrent._listview1.getSingleLineLayout().Label.setTextSize((float) (12));
+ //BA.debugLineNum = 95;BA.debugLine="End Sub";
 return "";
 }
 }

@@ -4,6 +4,17 @@ ModulesStructureVersion=1
 Type=Class
 Version=8.3
 @EndOfDesignText@
+'--------------------------------------------------------------------------------------------------
+' Class of various Computation Tool Methods
+'
+'	- Lowpass Filter for standard and directional (circular) data
+'	- 1D Kalman Filter for standard and directional (circular) data
+'	- compute AWD, TWA, TWD, TWS from AWA, AWS, and SOG data
+'	- convert from True North to Magnetic North and visa versa
+' 
+' Developed by Volker Petersen (volker.petersen01@gmail.com)
+' July 2018
+' -------------------------------------------------------------------------------------------------
 Sub Class_Globals
 	Public alpha As Float 			' Lowpass Filter parameter
 	Public precission As Float		' Precission value to check for ZERO
@@ -54,21 +65,41 @@ Public Sub Process_Sensor_Data
 	'Log("Battery in Smooth: " & (Starter.dataFields.IndexOf("Battery") <> - 1) )
 	'Log("Process_Sensor_Data(): alpha:           : " & alpha )
 	Dim value, sog, awa, awd, aws, twa, twd, tws As Float
-
-	Apply_Filters
+	Dim i As Int
 	
-	' compute the AWD (Compass readings are adjusted for True North or Magnetic North)
-	value = (Starter.sensorData.Get("AWA")+Starter.sensorData.Get("Compass")) Mod 360.0
+	If alpha < 1.0 Then
+		Apply_Filters
+		' put all non-filtered raw values into the Map sensorDataProcessed
+		For i=0 To (noFilter.Size-1)
+			key = noFilter.Get(i)
+			Starter.sensorDataProcessed.Put(key, Starter.sensorData.Get(key))
+		Next
+	Else
+		For i=0 To (Starter.dataFields.Size-1)
+			key = Starter.dataFields.Get(i)
+			Starter.sensorDataProcessed.Put(key, Starter.sensorData.Get(key))
+		Next
+	End If
+	
+	
+	' compute the AWD ("DIR" and "Compass" values are adjusted for True North or Magnetic North)
+	value = (Starter.sensorData.Get("DIR")+Starter.sensorData.Get("Compass")) Mod 360.0
 	Starter.sensorData.Put("AWD", value)
 	
+	' fix AWA to be in the range of -180 to +180 degrees
+	awa = Starter.sensorDataProcessed.Get("DIR")
+	If value > 180.0 Then
+		awa = awa - 360.0
+	End If
+	Starter.sensorDataProcessed.Put("AWA", awa)
+	
 	' compute TWA, TWD, and TWS
-	awa = Starter.sensorDataProcessed.Get("AWA")
 	awd = Starter.sensorDataProcessed.Get("AWD")
 	aws = Starter.sensorDataProcessed.Get("AWS")
 	sog = Starter.sensorDataProcessed.Get("SOG")
-	If (aws <= precission Or sog <= precission) Then
+	If (aws <= Starter.minSpeed Or sog <= Starter.minSpeed) Then
 		Starter.sensorDataProcessed.Put("TWA", awa)
-		Starter.sensorDataProcessed.Put("TWD", Starter.sensorDataProcessed.Get("AWD"))
+		Starter.sensorDataProcessed.Put("TWD", awd)
 		Starter.sensorDataProcessed.Put("TWS", aws)
 	Else
 		If awa < 0.0 Then
@@ -126,12 +157,6 @@ Public Sub Apply_Filters
 			Starter.sensorDataProcessed.Put(key, value)
 		End If
 	
-	Next
-	
-	' put all non-filtered raw values into the Map sensorDataProcessed
-	For i=0 To (noFilter.Size-1)
-		key = noFilter.Get(i)
-		Starter.sensorDataProcessed.Put(key, Starter.sensorData.Get(key))
 	Next
 	
 End Sub
