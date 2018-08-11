@@ -88,7 +88,7 @@ Sub Process_Globals
 	Public tryTimes As Int = 0
 
 	Public anemometerServiceID As String 	' Service ID of the Data Services for the connected Ultra device
-	Dim cNormal, cRate, cSensors, cStatus, cReset, cCalComp As String
+	Dim cNormal, cRate, cSensors, cStatus, cReset, cCalComp, cMagnet As String
 	
 	Public invalidMAC As String = "??:??"
 	Public defaultSensorName As String = "Ultrasonic Anemometer"
@@ -237,14 +237,18 @@ Sub GPS_LocationChanged(myLocation As Location)
 		sensorData.Put("SOG", 0.0)
 	End If
 	If myLocation.BearingValid Then
-		sensorData.Put("COG", myLocation.Bearing)
-		If (sensorData.Get("SOG") > 0.514444) Then		' need at least 1kt=0.514444 m/s of boat speed before we trust COG data
-			sensorData.Put("Compass", myLocation.Bearing)
+		If (sensorData.Get("SOG") > 0.26) Then		' need at least 0.5kt=0.26 m/s of boat speed before we trust COG data
+			sensorData.Put("COG", myLocation.Bearing)
 			validBearing = True
-			'Log("Used GPS compass value")
+			'Log("Used GPS hdg value")
+		Else
+			'Log("LOW SPEED warning - No valid GPS hdg value")
+			sensorData.Put("COG", 0.0)
+			validBearing = False
 		End If
 		phoneCompass = myLocation.Bearing
 	Else
+		'Log("GPS NO VALID BEARNING warning - No valid GPS hdg value")
 		sensorData.Put("COG", 0.0)
 		validBearing = False
 	End If
@@ -452,6 +456,7 @@ Sub BLE_DataAvailable (ServiceId As String, Characteristics As Map)
 	Dim bc As ByteConverter
 	Dim value As String
 	Dim sr As Short
+	Dim bVars(4) As Byte	' an array of 4 Bytes
 	'Dim millis As Long = DateTime.Now
 	
 	If ServiceId.StartsWith( "0000180d" ) Then
@@ -511,6 +516,14 @@ Sub BLE_DataAvailable (ServiceId As String, Characteristics As Map)
 					'Log( "Starter->BLE_DataAvailable(): BLE Device Calibration Mode: " & sr)
 				End If
 				
+				' Magnatic Field Data from eCompass (X, Y, Z) - Requires Firmware ULTRA71_rawCompassData.bin
+				If id.StartsWith( "0000a00c" ) Then
+					cMagnet = id
+
+					'bleManager.SetNotify( anemometerServiceID, cMagnet, True )
+
+				End If
+				
 				' Device Characteristic (Read/Write): Activate Roll/Pitch/Compass (0=Off, 1=On)
 				' These services are only available on the Ultrasonic Sensor => deviceType=2
 				If (id.StartsWith( "0000a003" ) And deviceType=2) Then
@@ -528,10 +541,41 @@ Sub BLE_DataAvailable (ServiceId As String, Characteristics As Map)
 			sr = bc.HexFromBytes(Characteristics.Get(cRate))
 			Log("Starter->BLE_DataAvailable(): FOUND new sample rate: " & sr)
 		End If
+		
+		If Characteristics.ContainsKey( cMagnet ) And compCalNow Then
+			Dim mX, mY, mZ As Float
+			Dim fvalue() As Float
+
+			bc.LittleEndian = True	' The least significant byte (LSB) value is at the lowest address
+			bc.ArrayCopy(Characteristics.Get(cMagnet), 0, bVars, 0, 4 ) ' copy first 4 bytes
+			fvalue = bc.FloatsFromBytes( bVars )
+			mX = fvalue(0)
+
+			bc.ArrayCopy(Characteristics.Get(cMagnet), 4, bVars, 0, 4 ) ' copy first 4 bytes
+			fvalue = bc.FloatsFromBytes( bVars )
+			mY = fvalue(0)
+			
+			bc.ArrayCopy(Characteristics.Get(cMagnet), 8, bVars, 0, 4 ) ' copy first 4 bytes
+			fvalue = bc.FloatsFromBytes( bVars )
+			mZ = fvalue(0)
+
+			Log("cal data: mX=" & NumberFormat(mX, 1, 4) & "  mY="  & NumberFormat(mY, 1, 4) & "  mZ=" & NumberFormat(mZ, 1, 4))
+			' save raw compass readings into List 'compCalValues'
+			value = mX & ", " & mY & ", " & mZ
+			compCalValues.Add(value)
+			compCalCtr = compCalCtr + 1
+			If compCalCtr >= compCalMax Then
+				compCalNow = False
+				CallSub(actCalibration, "Save_Calibration_Data")
+			Else
+				CallSub(actCalibration, "UI_Update")
+			End If
+			
+		End If
+		
 		If Characteristics.ContainsKey( cNormal ) Then
-			Dim bVars(4) As Byte	' each one of the 4 array elements is 1 byte
-			Dim cVars(2) As Byte	' each one of the 2 array elements is 1 byte
-			Dim sVars() As Short	' each array element has 2 bytes
+			Dim cVars(2) As Byte	' each one of the 2 array elements holds 1 byte
+			Dim sVars() As Short	' each array element has 2 bytes = 1 Short
 			Dim aws, direction, compass As Float
 
 			bc.LittleEndian = True	' The least significant byte (LSB) value is at the lowest address
@@ -545,7 +589,7 @@ Sub BLE_DataAvailable (ServiceId As String, Characteristics As Map)
 			' 6:   Roll					' only available for deviceType 2=Ultrasonic
 			' 7:   Pitch				' only available for deviceType 2=Ultrasonic
 			' 8-9: Compass Direction	' only available for deviceType 2=Ultrasonic
-			bc.ArrayCopy(Characteristics.Get(cNormal), 0, bVars, 0, 4 ) ' copy first 4 bytes into two signed Ints (2 bytes each)
+			bc.ArrayCopy(Characteristics.Get(cNormal), 0, bVars, 0, 4 ) ' copy first 4 bytes into two signed Ints (2 bytes each = 4 bytes)
 			sVars = bc.ShortsFromBytes( bVars )
 
 			aws = sVars(0)
@@ -568,18 +612,6 @@ Sub BLE_DataAvailable (ServiceId As String, Characteristics As Map)
 				sVars = bc.ShortsFromBytes( cVars )
 				compass = (360.0-sVars(0) + prefOffsetAngle) Mod 360
 				'Log("COMPASS: 1-0 = " & ToUnsigned(cVars(1)) & " : " & ToUnsigned(cVars(0)) & "   sVars= " & sVars(0) & "  comp=" & compass)
-
-				' save raw compass readings into List 'compCalValues'
-				If compCalNow Then
-					compCalValues.Add(compass)
-					compCalCtr = compCalCtr + 1
-					If compCalCtr >= compCalMax Then 
-						compCalNow = False
-						CallSub(actCalibration, "Save_Calibration_Data")
-					Else
-						CallSub(actCalibration, "UI_Update")
-					End If
-				End If
 				
 				If validBearing = False And prefPhoneCompass = False Then
 					' force compass data to True North so that all internal App directional data is True North
@@ -588,6 +620,7 @@ Sub BLE_DataAvailable (ServiceId As String, Characteristics As Map)
 					sensorData.Put("Compass", compass)
 					'Log("Used Anemometer compass value raw: " & NumberFormat(compass, 3, 0))
 				End If
+				
 			End If
 			
 			' process the raw sensor data and put results into 'sensorDataPrcessed'

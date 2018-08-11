@@ -64,7 +64,7 @@ Public Sub Process_Sensor_Data
 	alpha = Starter.prefSmoothing
 	'Log("Battery in Smooth: " & (Starter.dataFields.IndexOf("Battery") <> - 1) )
 	'Log("Process_Sensor_Data(): alpha:           : " & alpha )
-	Dim value, sog, awa, awd, aws, twa, twd, tws As Float
+	Dim sog, awa, awd, aws, twa, twd, tws As Float
 	Dim i, sign As Int
 	
 	If alpha < 1.0 Then
@@ -85,9 +85,9 @@ Public Sub Process_Sensor_Data
 	End If
 	
 	
-	' compute the AWD ("DIR" and "Compass" values are adjusted for True North or Magnetic North)
-	value = (Starter.sensorData.Get("DIR")+Starter.sensorData.Get("Compass")) Mod 360.0
-	Starter.sensorData.Put("AWD", value)
+	' compute the AWD from the "DIR" apparent wind angle and "COG" values (in True North)
+	awd = (Starter.sensorDataProcessed.Get("DIR")+Starter.sensorDataProcessed.Get("COG")) Mod 360.0
+	Starter.sensorDataProcessed.Put("AWD", awd)
 	
 	' use the "DIR" apparent wind angle with range of 0-360 to compute the AWA with a range of -180 to +180 degrees
 	awa = Starter.sensorDataProcessed.Get("DIR")
@@ -101,7 +101,6 @@ Public Sub Process_Sensor_Data
 	Starter.sensorDataProcessed.Put("AWA", awa)
 	
 	' compute TWA, TWD, and TWS
-	awd = Starter.sensorDataProcessed.Get("AWD")
 	aws = Starter.sensorDataProcessed.Get("AWS")
 	sog = Starter.sensorDataProcessed.Get("SOG")
 	If (aws <= Starter.minSpeed Or sog <= Starter.minSpeed) Then
@@ -136,9 +135,8 @@ Public Sub Apply_Filters
 	' apply the necessary filter to all data fields specified in 'Starter.dataFieldsFilter'
 	For i=0 To (Starter.dataFieldsFilter.Size-1)
 		key = Starter.dataFieldsFilter.Get(i)
-		If (key = "DIR") Then
-			' apply the Kalman Filter for circular data for the Wind Direction data
-			'Starter.sensorDataProcessed.Put(key, Starter.sensorData.Get(key))
+		If  Starter.dataFieldsCircular.IndexOf(key) <> -1 Then
+			' apply the Kalman Filter for circular data (awa Wind Direction, COG, and Compass data)
 			value = Kalman_Filter_Circular(Starter.sensorData.Get(key))
 			Starter.sensorDataProcessed.Put(key, value)
 		Else If (key = "AWS") Then
@@ -146,14 +144,8 @@ Public Sub Apply_Filters
 			value = updateEstimate( Starter.sensorData.Get(key), kS )
 			Starter.sensorDataProcessed.Put(key, value)
 		Else
-			' apply Lowpass Filter
-			If  Starter.dataFieldsCircular.IndexOf(key) <> -1 Then
-				' circular (angle) data
-				value = Lowpass_Filter_Circular(Starter.sensorData.Get(key), Starter.sensorDataProcessed.Get(key))
-			Else
-				' simple Lowpass Filter
-				value = alpha*Starter.sensorData.Get(key) + (1-alpha)*Starter.sensorDataProcessed.Get(key)
-			End If
+			' apply simple Lowpass Filter
+			value = alpha*Starter.sensorData.Get(key) + (1-alpha)*Starter.sensorDataProcessed.Get(key)
 			Starter.sensorDataProcessed.Put(key, value)
 		End If
 	
@@ -244,10 +236,7 @@ Sub test
 	For i=1 To data.Size-1
 		lpf = Lowpass_Filter_Circular(data.Get(i), lpf)
 		kalman = Kalman_Filter_Circular(data.Get(i))
-
-		'Log("LPF raw=" & data.Get(i) & " filter=" & lpf)
-		Log("Kal raw=" & data.Get(i) & " filter=" & kalman)
-		
+		Log("raw=" & data.Get(i) & " Kal-filter=" & kalman & " LP-filter=" & lpf)
 	Next
 	
 End Sub
