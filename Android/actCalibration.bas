@@ -36,34 +36,36 @@ End Sub
 Sub Activity_Create(FirstTime As Boolean)
 	'Do not forget to load the layout file created with the visual designer. For example:
 	Activity.LoadLayout("actcalcomp")
+	Activity.Title = "Anemometer Compass Calibration"
 	btnCalibrate.Text = "Start Calibration"
 	btnCalibrate.Tag = "Cal"
-	fileName = "CompassCalibrationData.txt"
+	fileName = Starter.calibrationDataFile
 		
 End Sub
 
 Sub Activity_Resume
 	Dim str As String
 	Dim answer As Int
-	Activity.Title = "Anemometer Compass Calibration"
 	instructions1 = "Calibration Process requires an Anemometer Reset."
-	instructions2 = "To calibrate the Anemometer compass execute 2 complete clockwise turns at a rate of 100-150 data points per turn. Hit the button when you are ready to start...."
+	instructions2 = "To calibrate the Anemometer compass execute 2 complete clockwise turns at a rate of 150-200 data points per turn. Hit the button when you are ready to start...."
 	lblRevCtr.Text = ""
 	
-	If Starter.calibrationReset Then
-		btnCalibrate.Enabled = True
-		lblMESSAGE.Text = instructions2
-	Else
-		btnCalibrate.Enabled = False
-		lblMESSAGE.Text = instructions1
-		str = "Calibration Process requires an Anemometer Reset. If that has been done, hit 'OK'. If not, hit 'Reset Now' and then goto the Menu option"
-		str = str & " 'Anemometer Reset' and reconnect the Bluetooth connection before returning to this Calibration screen."
-		answer = Msgbox2(str, "Anemometer Reset", "OK", "", "Anemometer Reset", Starter.appIcon)
-		If answer = DialogResponse.NEGATIVE Then
-			Activity.Finish
+	If Starter.compCalNow = False Then
+		If Starter.calibrationReset Then
+			btnCalibrate.Enabled = True
+			lblMESSAGE.Text = instructions2
+		Else
+			btnCalibrate.Enabled = False
+			lblMESSAGE.Text = instructions1
+			str = "Calibration Process requires an Anemometer Reset. If that has been done, hit 'OK'. If not, hit 'Reset Now' and then goto the Menu option"
+			str = str & " 'Anemometer Reset' and reconnect the Bluetooth connection before returning to this Calibration screen."
+			answer = Msgbox2(str, "Anemometer Reset", "OK", "", "Anemometer Reset", Starter.appIcon)
+			If answer = DialogResponse.NEGATIVE Then
+				Activity.Finish
+			End If
+			btnCalibrate.Enabled = True
+			lblMESSAGE.Text = instructions2
 		End If
-		btnCalibrate.Enabled = True
-		lblMESSAGE.Text = instructions2
 	End If
 	
 End Sub
@@ -91,9 +93,14 @@ Sub btnCalibrate_Click
 		feedback = Msgbox2("Do you want to Stop&Save or Restart this calibration process?", _
 		"Calibration Process Status", "Stop&Save", "", "Restart", Starter.appIcon )
 		If (feedback = DialogResponse.POSITIVE) Then
+			Starter.calcTools.CompassCalibrationMatrix
 			If Save_Calibration_Data Then
 				str = "Saved "& Starter.compCalValues.Size &" calibration data points to the file '" & File.DirDefaultExternal
-				str = str & "/" & fileName & "'. Calibration Process complete."
+				str = str & "/" & fileName & "'. Calibration Process complete." & CRLF
+				str = str & "Hard Iron: x=" & NumberFormat(Starter.calibrationMatrix(0,2),1,5) & "  y=" & NumberFormat(Starter.calibrationMatrix(1,2),1,5) & CRLF
+				str = str & "Hard Iron: z=" & NumberFormat(Starter.zHardIron,1,5) & CRLF
+				str = str & "Soft Iron: (0,0)=" & NumberFormat(Starter.calibrationMatrix(0,0),1,5) & "  (0,1)=" & NumberFormat(Starter.calibrationMatrix(0,1),1,5) & CRLF
+				str = str & "Soft Iron: (1,0)=" & NumberFormat(Starter.calibrationMatrix(1,0),1,5) & "  (1,1)=" & NumberFormat(Starter.calibrationMatrix(1,1),1,5 )
 			Else
 				str = "Couldn't save the calibration data to file '" & File.DirDefaultExternal & "/" & fileName & "'. Calibration Process failed."
 			End If
@@ -114,20 +121,7 @@ Sub UI_Update
 	lblRevCtr.Text = Starter.compCalCtr & " data points.  Value read: " & Starter.compCalValues.Get(Starter.compCalCtr-1)
 End Sub
 
-Sub Save_Calibration_Data As Boolean
-	' writes data to he folder: <storage card>/Android/data/<package>/files/
-
-	If File.Exists(File.DirDefaultExternal, fileName) = False Then
-		File.WriteString(File.DirInternal, fileName, " ")
-		'Log("test written to: " & File.DirInternal & "/" & fileName)
-		
-		If File.Exists(File.DirInternal, fileName) Then
-			File.Copy(File.DirInternal, fileName, File.DirDefaultExternal, fileName)
-			'Log("file exits File.DirDefaultExternal: " & File.Exists(File.DirDefaultExternal, fileName))
-		End If
-		'Log("file exits Internal: " & File.Exists(File.DirInternal, fileName))
-	End If
-		
+Sub Save_Calibration_Data As Boolean		
 	File.WriteList(File.DirDefaultExternal, fileName, Starter.compCalValues)
 	Log("Calibration data written to: " & File.DirDefaultExternal & "/" & fileName)
 	Return File.Exists(File.DirDefaultExternal, fileName)

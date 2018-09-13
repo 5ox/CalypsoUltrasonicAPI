@@ -75,11 +75,19 @@ Sub Process_Globals
 	Public compCalValues As List		' store the compass calibration values
 	Public compCalNow As Boolean		' compass calibration runs when True. False stops this process
 	Public sensorData As Map			' current datapoint received from the sensors via BLE and GPS
+	Public compassOffset As Float		' compass offset in relationship to the mark on the device
 	Public sensorDataProcessed As Map	' processed datapoints after Kalman, Lowpass, or No filter has been applied 
 	Public dataFields As List			' data fields in the 'sensorData' & 'sensorDataPrev' dictionaries
 	Public dataFieldsFilter As List		' data fields to be smoothed when this feature is enabled in Preference Settings
 	Public dataFieldsCircular As List	' data fields that hold a cicular value (i.e., direction ranging from 0-359.999 degree)
 	Public dataFieldsAPI As List		' data fields that will be transmitted by the API (using Broadcast Intents)
+	Public calibrationReset As Boolean		' keep track if a reset has been done as part of the multi step calibration process
+	Public calibrationDataFile As String	' file that holds the latest compass calibration file
+	Public calibrationMatrix(2,3) As Float	' Compass Calibration Matrix
+	Public zHardIron As Float           ' Hard-Iron calibration factoro for the z-axis compass values
+	Public mX(compCalMax) As Float		' raw & uncalibrated compass value in x-axis
+	Public mY(compCalMax) As Float		' raw & uncalibrated compass value in y-axis
+	Public mZ(compCalMax) As Float		' raw & uncalibrated compass value in z-axis
 	
 	Type tUltra(Name As String, MacAddress As String, RSSI As Double)
 	Public connectedDevice As tUltra	' tUltra data of the actual device connected to this App
@@ -97,10 +105,8 @@ Sub Process_Globals
 	Public deviceInfo As Map
 	
 	Public calcTools As ComputationTools ' class of various calculation tools & methods
-	Public speedToKnots As Float
+	Public speedToKnots As Float		' constant to convert speed from m/s to nm/hr = kts
 	Public minSpeed As Float			' minimum speed required to compute True wind data from the Apparent wind data
-	
-	Public calibrationReset As Boolean	' keep track if a reset has been done as part of the multi step calibration process
 	
 End Sub
 
@@ -111,6 +117,8 @@ Sub Service_Create
 	' All speed data is stored in 'm/s'
 	' All directional data is stored in true degrees
 	'
+	
+	logs.Initialize
 	
 	bleSelect = True
 	runBackgroundTasks = True
@@ -154,11 +162,14 @@ Sub Service_Create
 
 	calcTools.Initialize
 	speedToKnots = 1.943844492		' m/s to knots conversion -> 1.943844492 kts per m/s
-	minSpeed = 0.1					' 0.1 m/s or 0.2 kts
+	minSpeed = 0.5/speedToKnots		' 0.5 kts = min speed before we compute GPS Hdg, TWA, TWD, TWS, etc.
 	localDeclination = 999.0		' default value that will force update with actual value from phone
-	compCalValues.Initialize
-	compCalNow = False
+	compassOffset = 0.0				' compass offset in relation to the mark on the device
+	compCalValues.Initialize		' initialize List that will hold the compass calibration data
+	compCalNow = False				' set to True when you want to collect the compass calibartion data
 	calibrationReset = False
+	calibrationDataFile = "CompassCalibrationData.txt"
+		
 End Sub
 
 Sub Service_Start (StartingIntent As Intent)
@@ -237,7 +248,7 @@ Sub GPS_LocationChanged(myLocation As Location)
 		sensorData.Put("SOG", 0.0)
 	End If
 	If myLocation.BearingValid Then
-		If (sensorData.Get("SOG") > 0.26) Then		' need at least 0.5kt=0.26 m/s of boat speed before we trust COG data
+		If (sensorData.Get("SOG") > minSpeed) Then		' need at least 0.5kt=0.26 m/s of boat speed before we trust COG data
 			sensorData.Put("COG", myLocation.Bearing)
 			validBearing = True
 			'Log("Used GPS hdg value")
@@ -246,7 +257,6 @@ Sub GPS_LocationChanged(myLocation As Location)
 			sensorData.Put("COG", 0.0)
 			validBearing = False
 		End If
-		phoneCompass = myLocation.Bearing
 	Else
 		'Log("GPS NO VALID BEARNING warning - No valid GPS hdg value")
 		sensorData.Put("COG", 0.0)
@@ -295,16 +305,16 @@ Sub Init_Phone_Compass
 End Sub
 
 Sub orientation_SensorChanged (Values() As Float)
-	' only use this value if User Preferences allow it and we don't have a valid Bearing from the GPS
+	' only use this value if User Preferences allow it and we have a no valid Bearing from the GPS
 	'Log("Starter->orientation_SensorChanged(): Phone Compass: " & NumberFormat(Values(0), 3, 0) & " | "  & NumberFormat(Values(1), 3, 0) & " | " &NumberFormat(Values(2), 3, 0))
-	If validBearing=False And prefPhoneCompass Then
-		phoneCompass = Values(0)
-		If Not( Main.portrait ) Then
-			phoneCompass = (phoneCompass + 90) Mod 360
-		End If
-		
-		' force compass data to True North so that all internal App directional data is True North 
-		phoneCompass= calcTools.MagneticToTrueNorth(phoneCompass)
+	phoneCompass = Values(0)
+	If Not( Main.portrait ) Then
+		phoneCompass = (phoneCompass + 90) Mod 360
+	End If
+	' force compass data to True North so that all internal App directional data is True North
+	phoneCompass= calcTools.MagneticToTrueNorth(phoneCompass)
+
+	If validBearing=False And prefPhoneCompass Then		
 		sensorData.Put("Compass", phoneCompass)
 		'Log("Used Phone compass Orientation value: " & NumberFormat(phoneCompass, 3, 0))
 	End If
@@ -498,7 +508,7 @@ Sub BLE_DataAvailable (ServiceId As String, Characteristics As Map)
 				End If
 
 				' Data Service that can also enable the BLE Notification feature
-				If id.StartsWith( "00002a39" ) Then					' sensor data feed is on
+				If id.StartsWith( "00002a39" ) Then
 					cNormal = id
 					bleManager.SetNotify( anemometerServiceID, cNormal, True )
 					bleNotify = True
@@ -519,8 +529,7 @@ Sub BLE_DataAvailable (ServiceId As String, Characteristics As Map)
 				' Magnatic Field Data from eCompass (X, Y, Z) - Requires Firmware ULTRA71_rawCompassData.bin
 				If id.StartsWith( "0000a00c" ) Then
 					cMagnet = id
-
-					'bleManager.SetNotify( anemometerServiceID, cMagnet, True )
+					bleManager.SetNotify( anemometerServiceID, cMagnet, True )
 
 				End If
 				
@@ -542,44 +551,56 @@ Sub BLE_DataAvailable (ServiceId As String, Characteristics As Map)
 			Log("Starter->BLE_DataAvailable(): FOUND new sample rate: " & sr)
 		End If
 		
-		If Characteristics.ContainsKey( cMagnet ) And compCalNow Then
-			Dim mX, mY, mZ As Float
+		If Characteristics.ContainsKey( cMagnet ) Then
+			Dim X, Y, Z, compass As Float
 			Dim fvalue() As Float
 
 			bc.LittleEndian = True	' The least significant byte (LSB) value is at the lowest address
 			bc.ArrayCopy(Characteristics.Get(cMagnet), 0, bVars, 0, 4 ) ' copy first 4 bytes
 			fvalue = bc.FloatsFromBytes( bVars )
-			mX = fvalue(0)
+			X = fvalue(0)
 
 			bc.ArrayCopy(Characteristics.Get(cMagnet), 4, bVars, 0, 4 ) ' copy first 4 bytes
 			fvalue = bc.FloatsFromBytes( bVars )
-			mY = fvalue(0)
+			Y = -fvalue(0)		' correct for the upside down mounting of the eCompass
 			
 			bc.ArrayCopy(Characteristics.Get(cMagnet), 8, bVars, 0, 4 ) ' copy first 4 bytes
 			fvalue = bc.FloatsFromBytes( bVars )
-			mZ = fvalue(0)
+			Z = -fvalue(0)		' correct for the upside down mounting of the eCompass
+				
+			If prefPhoneCompass = False Then
+				compass = calcTools.getCompassDirection(X, Y, Z, sensorData.Get("Pitch"), sensorData.Get("Roll"))
+				
+				' force compass data to True North so that all internal App directional data is True North
+				compass = calcTools.MagneticToTrueNorth(compass)
+					
+				sensorData.Put("Compass", compass)
+			End If
 
-			Log("cal data: mX=" & NumberFormat(mX, 1, 4) & "  mY="  & NumberFormat(mY, 1, 4) & "  mZ=" & NumberFormat(mZ, 1, 4))
-			' save raw compass readings into List 'compCalValues'
-			value = mX & ", " & mY & ", " & mZ
-			compCalValues.Add(value)
-			compCalCtr = compCalCtr + 1
-			If compCalCtr >= compCalMax Then
-				compCalNow = False
-				CallSub(actCalibration, "Save_Calibration_Data")
-			Else
-				CallSub(actCalibration, "UI_Update")
+			If compCalNow Then
+				mX(compCalCtr) = X
+				mY(compCalCtr) = Y
+				mZ(compCalCtr) = Z
+				Log("cal data: mX=" & NumberFormat(X, 1, 4) & "  mY="  & NumberFormat(Y, 1, 4) & "  mZ=" & NumberFormat(Z, 1, 4))
+				' save raw compass readings into List 'compCalValues'
+				value = X & "; " & Y & "; " & Z
+				compCalValues.Add(value)
+				compCalCtr = compCalCtr + 1
+				If compCalCtr >= compCalMax Then
+					compCalNow = False
+					CallSub(actCalibration, "Save_Calibration_Data")
+				Else
+					CallSub(actCalibration, "UI_Update")
+				End If
 			End If
 			
 		End If
 		
 		If Characteristics.ContainsKey( cNormal ) Then
-			Dim cVars(2) As Byte	' each one of the 2 array elements holds 1 byte
 			Dim sVars() As Short	' each array element has 2 bytes = 1 Short
 			Dim aws, direction, compass As Float
 
 			bc.LittleEndian = True	' The least significant byte (LSB) value is at the lowest address
-			' java.lang.RuntimeException: java.lang.NumberFormatException: For input string: "00000000F02B0020F42B0020482C00209C2C"
 			
 			' Data structure and bytes utilized
 			' 0-1: aws
@@ -606,21 +627,8 @@ Sub BLE_DataAvailable (ServiceId As String, Characteristics As Map)
 				'Log( "Roll: " & ToUnsigned(bVars(2) ) )
 				sensorData.Put("Battery", ToUnsigned(bVars(0))*10)
 				sensorData.Put("Temp", ToUnsigned(bVars(1)) - 100)
-				sensorData.Put("Roll", ToUnsigned(bVars(2)) - 90)
-				sensorData.Put("Pitch", ToUnsigned(bVars(3)) - 90)
-				bc.ArrayCopy(Characteristics.Get(cNormal), 8, cVars, 0, 2 ) ' copy 2 bytes with offset 8 into 2 bytes
-				sVars = bc.ShortsFromBytes( cVars )
-				compass = (360.0-sVars(0) + prefOffsetAngle) Mod 360
-				'Log("COMPASS: 1-0 = " & ToUnsigned(cVars(1)) & " : " & ToUnsigned(cVars(0)) & "   sVars= " & sVars(0) & "  comp=" & compass)
-				
-				If validBearing = False And prefPhoneCompass = False Then
-					' force compass data to True North so that all internal App directional data is True North
-					compass = calcTools.MagneticToTrueNorth(compass)
-					
-					sensorData.Put("Compass", compass)
-					'Log("Used Anemometer compass value raw: " & NumberFormat(compass, 3, 0))
-				End If
-				
+				sensorData.Put("Pitch", -(ToUnsigned(bVars(2)) - 90))		' correct for the upside down mounting of the Accelerometer
+				sensorData.Put("Roll", -(ToUnsigned(bVars(3)) - 90))		' correct for the upside down mounting of the Accelerometer
 			End If
 			
 			' process the raw sensor data and put results into 'sensorDataPrcessed'

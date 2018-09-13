@@ -54,7 +54,7 @@ Version=8.3
 ' Bearing data priotities: 1. GPS bearing
 '                          2. Ultrasonic Anemometer (when properly calibrated)
 '                          3. Phone magnetic compass (must be aligned with tick mark on Anemometer, set Preference Phone Compass True)
-' If GPS bearing is valid and GPS speed is > 1 kt, we use the GPS bearing as Compass
+' If GPS bearing is valid and GPS speed is > 0.5 kt (Starter.minSpeed), we use the GPS bearing as Compass
 ' If GPS bearing is not available, we use the Anemometer eCompass data unless the User has Enabled the Phone Compass data utilization
 '
 ' This App interprets all speed data in m/s and all directional data as True North. The broadcast directional
@@ -106,7 +106,6 @@ Sub Process_Globals
 	Public yes As String = "Yes"
 	Public no As String = "No"
 	Dim portrait As Boolean
-
 End Sub
 
 
@@ -142,25 +141,79 @@ Sub Activity_Create(FirstTime As Boolean)
 	Activity.AddMenuItem("Exit App","Exit") 'bottom
 		
 	If FirstTime Then
+		' Initialize the User Preference Dialog
 		Create_User_Preference_Screen
 		Starter.javaInline.InitializeContext
 	End If
 			
 	lblBROADCASTS.Text = " "
 	Activity.Title = "Calypso Ultrasonic API" & Chr(8482)
+	
+	
 End Sub
 
 
 Sub Activity_Resume	
-	Get_Current_Preference_Settings(False)			' fetch the lastest User Preference settings
+	Get_Current_Preference_Settings(False)			' fetch the lastest User Preference settings (True runs in verboce mode)
 	
+	' initialize the raw calibration data file in folder: <storage card>/Android/data/<package>/files/
+	' make sure we have the propper User Permission to write calibation data to file
+	Starter.rp.CheckAndRequest(Starter.rp.PERMISSION_WRITE_EXTERNAL_STORAGE)
+	Wait For Activity_PermissionResult(Permission As String, Result As Boolean)
+
+	Log("START Result = "& Result & " writable = " & (File.ExternalWritable))
+	If (Result=False) Or (File.ExternalWritable=False) Then
+		Dim str As String
+		str = "In order to do a compass calibration, we need to write data to the default storage location. "
+		str = str & "Please provide your permission to give this App full functionability."
+		If (Confirm_Dialog(str, "Storage Access Error", yes, no) ) Then
+			Confirm_Dialog("Please restart this App and provide the request Access to the Storage location", "Restart App", "OK", "")
+			Activity.Finish
+		End If
+	Else
+		If File.Exists(File.DirDefaultExternal, Starter.calibrationDataFile) = False Then
+			File.WriteString(File.DirInternal, Starter.calibrationDataFile, " ")
+			'Log("test written to: " & File.DirInternal & "/" & Starter.calibrationDataFile)
+		
+			If File.Exists(File.DirInternal, Starter.calibrationDataFile) Then
+				File.Copy(File.DirInternal, Starter.calibrationDataFile, File.DirDefaultExternal, Starter.calibrationDataFile)
+				'Log("file exits File.DirDefaultExternal: " & File.Exists(File.DirDefaultExternal, Starter.calibrationDataFile))
+			End If
+			'Log("file exits Internal: " & File.Exists(File.DirInternal, Starter.calibrationDataFile))
+		End If
+	End If
+	Log("END Result = "& Result & " writable=False = " & (File.ExternalWritable=False))
+		
+
+
 	If Activity.Width > Activity.Height Then		' check if Phone is in Landscape or Portrait mode
 		portrait = False
 	Else
 		portrait = True
 	End If
 
+	' test code
+	'------------------------------------------------------------------------------------------------------------
+	
 	'Starter.calcTools.test							' Kalman and Lowpass Filter testing completed
+	
+	'Starter.compCalCtr = Starter.calcTools.LoadCalibrationData 
+	'If Starter.compCalCtr>0 Then
+	'	Starter.calcTools.CompassCalibrationMatrix
+	'	Log(" Hard-Iron: x=" & NumberFormat(Starter.calibrationMatrix(0,2),1,5) & "  y=" & NumberFormat(Starter.calibrationMatrix(1,2),1,5))
+	'	Log(" Soft-Iron: (0,0)=" & NumberFormat(Starter.calibrationMatrix(0,0),1,5) & "  (0,1)=" & NumberFormat(Starter.calibrationMatrix(0,1),1,5))
+	'	Log(" Soft-Iron: (1,0)=" & NumberFormat(Starter.calibrationMatrix(1,0),1,5) & "  (1,1)=" & NumberFormat(Starter.calibrationMatrix(1,1),1,5 ))
+	'
+	'	For i=0 To 10
+	'		Dim compass As Float
+	'		compass = Starter.calcTools.getCompassDirection(Starter.mX(i), Starter.mY(i), Starter.mZ(i), 0.0, 0.0)
+	'	Next
+	'
+	'End If
+	' end of test code
+	'------------------------------------------------------------------------------------------------------------
+
+
 
 	' make sure Location Services are running
 	If Starter.activeGPS = False Then
@@ -269,7 +322,7 @@ Sub update_UI
 	lblConnectionStatus.Text = Starter.bleStateText
 	
 	If Starter.prefTrueNorth Then
-		compass = Starter.sensorDataProcessed.Get("Compass")
+		compass = Starter.calcTools.TrueToMagneticNorth(Starter.sensorDataProcessed.Get("Compass"))
 		heading = Starter.sensorDataProcessed.Get("COG")
 		tmp = "ºT"
 	Else
@@ -294,20 +347,13 @@ Sub update_UI
 		tmp = Starter.gpsLocation.ConvertToMinutes(Starter.sensorData.Get("LAT"))
 		str = "Lat: " & tmp.SubString2(0, tmp.Length-2)
 		tmp = Starter.gpsLocation.ConvertToMinutes(Starter.sensorData.Get("LON"))
-		str = str & "   Lon: " & tmp.SubString2(0, tmp.Length-2)
-	End If
-
-	If Starter.validBearing Then
-		compass = heading
-	Else
-		compass = Starter.phoneCompass
-		If Starter.prefTrueNorth = False Then compass = Starter.calcTools.TrueToMagneticNorth(compass)
+		str = str & "  Lon: " & tmp.SubString2(0, tmp.Length-2)
 	End If
 	
-	str = str & "   Hdg: " & NumberFormat(compass, 3, 0) & "º"
+	str = str & "  Hdg: " & NumberFormat(Starter.phoneCompass, 3, 0) & "º"
 
 	If ( Abs(Starter.sensorData.Get("DECL")) > Starter.calcTools.precission ) Then
-		str = str & "   δ: " & NumberFormat(Starter.sensorData.Get("DECL"), 1, 1) & "º"
+		str = str & "  δ: " & NumberFormat(Starter.sensorData.Get("DECL"), 1, 1) & "º"
 	End If
 	lblLOCATION.Text = str
 End Sub
@@ -335,6 +381,7 @@ Sub btnCONNECT_Click
 		CallSubDelayed(Starter, "BLE_Scan")
 	
 	Else If btnCONNECT.Tag = "Connect" Then
+		lblConnectionStatus.Text = "Connecting to " & Starter.prefBluetoothName & "..." 
 		Starter.uuid.Initialize
 		Starter.uuid.Add(Starter.prefBluetoothUUID)
 		Starter.bleSelect = False				' will only scan and connect to our known device with above UUID
@@ -486,15 +533,6 @@ Sub Calibration_Click
 					   "Calibration Process", "OK", "")
 		Return
 	End If
-	
-	' make sure we have the propper User Permission to write calibation data to file
-	Starter.rp.CheckAndRequest(Starter.rp.PERMISSION_WRITE_EXTERNAL_STORAGE)
-	Wait For Activity_PermissionResult(Permission As String, Result As Boolean)
-
-	If (Result=False) Or (File.ExternalWritable=False) Then
-		Confirm_Dialog("Cannot write to the default storage location. Missing User permission. Can not start the Calibration process", "Storage Access Error", "OK", "")
-		Return
-	End If
 
 	StartActivity(actCalibration)
 
@@ -596,6 +634,13 @@ Sub Set_Default_User_Preferences
 	Starter.prefManager.SetString("bleMAC", Starter.invalidMAC)
 	Starter.prefManager.SetString("bleUUID", "")
 	Starter.prefManager.SetBoolean("PhoneCompass", False)
+	Starter.prefManager.SetString("Matrix00", "0.0")
+	Starter.prefManager.SetString("Matrix01", "0.0")
+	Starter.prefManager.SetString("Matrix02", "0.0")
+	Starter.prefManager.SetString("Matrix10", "0.0")
+	Starter.prefManager.SetString("Matrix11", "0.0")
+	Starter.prefManager.SetString("Matrix12", "0.0")
+	Starter.prefManager.SetString("zHardIron", "0.0")
 End Sub
 
 
@@ -646,6 +691,13 @@ Sub Get_Current_Preference_Settings(verbose As Boolean)
 		Starter.prefBluetoothUUID = Starter.prefManager.GetString("bleUUID")
 	End If
 	
+	Starter.calibrationMatrix(0,0) = Starter.prefManager.GetString("Matrix00")
+	Starter.calibrationMatrix(0,1) = Starter.prefManager.GetString("Matrix01")
+	Starter.calibrationMatrix(0,2) = Starter.prefManager.GetString("Matrix02")
+	Starter.calibrationMatrix(1,0) = Starter.prefManager.GetString("Matrix10")
+	Starter.calibrationMatrix(1,1) = Starter.prefManager.GetString("Matrix11")
+	Starter.calibrationMatrix(1,2) = Starter.prefManager.GetString("Matrix12")
+	Starter.zHardIron = Starter.prefManager.GetString("zHardIron")
 	Starter.calcTools.Initialize
 	
 	If Starter.prefPhoneCompass Then
@@ -665,6 +717,12 @@ Sub Get_Current_Preference_Settings(verbose As Boolean)
 		Log("Main->Get_Current_Preference_Settings(): Mac Name:       "&Starter.prefBluetoothName)
 		Log("Main->Get_Current_Preference_Settings(): Mac Address:    "&Starter.prefBluetoothMAC)
 		Log("Main->Get_Current_Preference_Settings(): UUID ServiceID: "&Starter.prefBluetoothUUID)
+		Log("Main->Get_Current_Preference_Settings(): CalMatrix00:    "&Starter.calibrationMatrix(0,0))
+		Log("Main->Get_Current_Preference_Settings(): CalMatrix01:    "&Starter.calibrationMatrix(0,1))
+		Log("Main->Get_Current_Preference_Settings(): CalMatrix02:    "&Starter.calibrationMatrix(0,2))
+		Log("Main->Get_Current_Preference_Settings(): CalMatrix10:    "&Starter.calibrationMatrix(1,0))
+		Log("Main->Get_Current_Preference_Settings(): CalMatrix11:    "&Starter.calibrationMatrix(1,1))
+		Log("Main->Get_Current_Preference_Settings(): CalMatrix12:    "&Starter.calibrationMatrix(1,2))
 	End If
 End Sub
 
